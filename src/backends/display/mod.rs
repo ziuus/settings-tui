@@ -87,4 +87,112 @@ impl DisplayBackend for HyprlandBackend {
             Err(anyhow!("Failed to set resolution"))
         }
     }
+
+    async fn get_brightness(&self) -> Result<Option<u32>> {
+        Ok(read_system_brightness())
+    }
+
+    async fn set_brightness(&self, percent: u32) -> Result<()> {
+        write_system_brightness(percent)
+    }
+}
+
+#[derive(Default)]
+pub struct GenericDisplayBackend;
+
+impl GenericDisplayBackend {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl DisplayBackend for GenericDisplayBackend {
+    async fn get_monitors(&self) -> Result<Vec<Monitor>> {
+        Ok(Vec::new())
+    }
+
+    async fn set_resolution(
+        &self,
+        _name: &str,
+        _width: i32,
+        _height: i32,
+        _refresh: f64,
+    ) -> Result<()> {
+        Err(anyhow!("Resolution switching requires Hyprland compositor"))
+    }
+
+    async fn get_brightness(&self) -> Result<Option<u32>> {
+        Ok(read_system_brightness())
+    }
+
+    async fn set_brightness(&self, percent: u32) -> Result<()> {
+        write_system_brightness(percent)
+    }
+}
+
+fn read_system_brightness() -> Option<u32> {
+    // 1. Try brightnessctl
+    if let Ok(output) = Command::new("brightnessctl").arg("g").output() {
+        if output.status.success() {
+            if let Ok(max_out) = Command::new("brightnessctl").arg("m").output() {
+                if max_out.status.success() {
+                    let cur: f64 = String::from_utf8_lossy(&output.stdout)
+                        .trim()
+                        .parse()
+                        .unwrap_or(0.0);
+                    let max: f64 = String::from_utf8_lossy(&max_out.stdout)
+                        .trim()
+                        .parse()
+                        .unwrap_or(1.0);
+                    if max > 0.0 {
+                        let pct = ((cur / max) * 100.0).round() as u32;
+                        return Some(pct.min(100));
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fallback to /sys/class/backlight sysfs
+    if let Ok(entries) = std::fs::read_dir("/sys/class/backlight") {
+        for entry in entries.flatten() {
+            let cur_path = entry.path().join("brightness");
+            let max_path = entry.path().join("max_brightness");
+            if let (Ok(cur_str), Ok(max_str)) = (
+                std::fs::read_to_string(cur_path),
+                std::fs::read_to_string(max_path),
+            ) {
+                if let (Ok(cur), Ok(max)) =
+                    (cur_str.trim().parse::<f64>(), max_str.trim().parse::<f64>())
+                {
+                    if max > 0.0 {
+                        let pct = ((cur / max) * 100.0).round() as u32;
+                        return Some(pct.min(100));
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn write_system_brightness(percent: u32) -> Result<()> {
+    let clamped = percent.min(100);
+    let output = Command::new("brightnessctl")
+        .arg("s")
+        .arg(format!("{}%", clamped))
+        .output()?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr);
+        let msg = err
+            .lines()
+            .next()
+            .unwrap_or("Failed to set brightness")
+            .trim();
+        Err(anyhow!("{}", msg))
+    }
 }

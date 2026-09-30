@@ -1,4 +1,4 @@
-use super::{Network, NetworkBackend, NetworkId};
+use super::{ActiveConnectionInfo, Network, NetworkBackend, NetworkId};
 
 pub mod nm_backend;
 

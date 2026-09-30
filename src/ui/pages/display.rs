@@ -8,7 +8,7 @@ use ratatui::{
 pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
     let mut text = vec![
         Line::from(Span::styled(
-            "Displays & Monitors",
+            "Displays & Brightness",
             Style::default()
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
@@ -16,14 +16,48 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         Line::from(""),
     ];
 
+    let has_brightness = app.display_brightness.is_some();
+    if let Some(brightness) = app.display_brightness {
+        let is_selected = content_active && app.selected_item == 0;
+        let bar_width = 15;
+        let filled = ((brightness as usize) * bar_width / 100).min(bar_width);
+        let empty = bar_width - filled;
+        let bar = format!(
+            "[{}{}] {}%",
+            "█".repeat(filled),
+            "░".repeat(empty),
+            brightness
+        );
+        let control = widgets::value_selector(&format!("< {} >", bar), is_selected);
+        let row_lines = widgets::setting_row(
+            "Display Brightness",
+            "Adjust screen backlight level using [< / >] or [- / +]",
+            control,
+            is_selected,
+            60,
+        );
+        text.extend(row_lines);
+        text.push(Line::from(""));
+    }
+
+    text.push(Line::from(Span::styled(
+        "Monitors & Resolutions",
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
+    )));
+    text.push(Line::from(""));
+
+    let monitor_offset = if has_brightness { 1 } else { 0 };
+
     if app.monitors.is_empty() {
         text.push(Line::from(Span::styled(
-            "  No monitors detected.",
+            "  No configurable monitors detected (Wayland/Hyprland session required for mode switching).",
             Style::default().fg(Color::DarkGray),
         )));
     } else {
         for (i, m) in app.monitors.iter().enumerate() {
-            let is_selected = content_active && i == app.selected_item;
+            let is_selected = content_active && (i + monitor_offset) == app.selected_item;
 
             let mut title = m.name.clone();
             if m.primary {
@@ -34,7 +68,6 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             }
 
             let current_res = format!("{}x{}@{:.2}Hz", m.width, m.height, m.refresh_rate);
-            // Check if there are other modes
             let modes_str = if m.supported_modes.len() > 1 {
                 format!("< {} >", current_res)
             } else {
@@ -46,7 +79,6 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
 
             text.extend(row_lines);
 
-            // Add scale info as a sub-row (read-only for now)
             let scale_lines = widgets::setting_row(
                 "Scale",
                 "Display scaling factor",

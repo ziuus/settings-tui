@@ -51,6 +51,13 @@ pub trait AudioBackend: Send + Sync {
 pub struct NetworkId(pub String);
 
 #[derive(Debug, Clone)]
+pub struct ActiveConnectionInfo {
+    pub interface: String,
+    pub ip_address: String,
+    pub gateway: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct Network {
     pub id: NetworkId,
     pub name: String,
@@ -63,24 +70,39 @@ pub trait NetworkBackend: Send + Sync {
     async fn wifi_enabled(&self) -> Result<bool>;
     async fn set_wifi_enabled(&self, enabled: bool) -> Result<()>;
     async fn networks(&self) -> Result<Vec<Network>>;
+    async fn get_active_connection(&self) -> Result<Option<ActiveConnectionInfo>>;
     async fn connect(&self, network: &NetworkId) -> Result<()>;
     async fn disconnect(&self, network: &NetworkId) -> Result<()>;
 }
 
 // System Backend
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemDiskInfo {
+    pub mount_point: String,
+    pub total_bytes: u64,
+    pub available_bytes: u64,
+    pub fs_type: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct SystemInfo {
+    pub hostname: String,
+    pub chassis: String,
     pub distro: String,
     pub kernel: String,
     pub uptime: u64,
     pub memory_total: u64,
     pub memory_used: u64,
+    pub timezone: String,
+    pub ntp_active: bool,
+    pub disks: Vec<SystemDiskInfo>,
 }
 
 #[async_trait]
 pub trait SystemBackend: Send + Sync {
     async fn get_info(&self) -> Result<SystemInfo>;
     async fn power_action(&self, action: &str) -> Result<()>;
+    async fn set_ntp(&self, active: bool) -> Result<()>;
 }
 
 // Core definitions for Bluetooth
@@ -189,6 +211,8 @@ pub trait DisplayBackend: Send + Sync {
     async fn get_monitors(&self) -> Result<Vec<Monitor>>;
     async fn set_resolution(&self, name: &str, width: i32, height: i32, refresh: f64)
         -> Result<()>;
+    async fn get_brightness(&self) -> Result<Option<u32>>;
+    async fn set_brightness(&self, percent: u32) -> Result<()>;
 }
 
 // Core definitions for Appearance

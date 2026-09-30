@@ -62,6 +62,8 @@ pub enum AppEvent {
     UpdateAppearance(AppearanceInfo),
     UpdateApplications(Vec<AppEntry>),
     UpdateCapabilities(Box<crate::platform::PlatformCapabilities>),
+    UpdateBrightness(Option<u32>),
+    UpdateActiveConnection(Option<crate::backends::ActiveConnectionInfo>),
     Notification(String),
 }
 
@@ -76,11 +78,13 @@ pub enum BackendCommand {
     CyclePowerProfile,
     ToggleWifi(bool),
     SetDisplayResolution(String, i32, i32, f64),
+    SetDisplayBrightness(u32),
     ConnectNetwork(crate::backends::NetworkId, bool),
     SetAudioDefault(u32),
     RemoveBluetoothDevice(crate::backends::BluetoothDeviceId),
     LaunchApplication(String),
     SystemPowerAction(String),
+    ToggleNTP(bool),
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -115,6 +119,8 @@ pub struct App {
     pub audio_streams: Vec<crate::backends::AudioStream>,
     pub services: Vec<crate::backends::ServiceInfo>,
     pub monitors: Vec<crate::backends::Monitor>,
+    pub display_brightness: Option<u32>,
+    pub active_connection: Option<crate::backends::ActiveConnectionInfo>,
     pub appearance_info: Option<crate::backends::AppearanceInfo>,
     pub applications: Vec<crate::backends::AppEntry>,
     pub cmd_tx: Option<mpsc::Sender<BackendCommand>>,
@@ -161,6 +167,8 @@ impl App {
             audio_streams: vec![],
             services: vec![],
             monitors: vec![],
+            display_brightness: None,
+            active_connection: None,
             appearance_info: None,
             applications: vec![],
             cmd_tx: None,
@@ -411,6 +419,29 @@ impl App {
         }
 
         // Search Display
+        let bright_score = calc_score(
+            "Screen Brightness",
+            "Display",
+            "Adjust screen backlight brightness level",
+            "backlight monitor brightness display screen",
+            &q,
+        );
+        if bright_score > 0 {
+            self.search_results.push(SearchResult {
+                title: "Screen Brightness".to_string(),
+                category: "Display".to_string(),
+                description: "Adjust screen backlight brightness level".to_string(),
+                target_item_idx: 0,
+                score: bright_score,
+            });
+        }
+
+        let monitor_idx_offset = if self.display_brightness.is_some() {
+            1
+        } else {
+            0
+        };
+
         for (i, mon) in self.monitors.iter().enumerate() {
             let extra = format!("refresh rate resolution {}x{} hz", mon.width, mon.height);
             let score = calc_score(
@@ -428,7 +459,7 @@ impl App {
                         "Resolution & Refresh Rate ({}x{}@{:.0}Hz)",
                         mon.width, mon.height, mon.refresh_rate
                     ),
-                    target_item_idx: i,
+                    target_item_idx: i + monitor_idx_offset,
                     score,
                 });
             }
@@ -470,26 +501,32 @@ impl App {
             });
         }
 
-        // Search System Power Actions
+        // Search System Settings & Actions
         let sys_actions = [
+            (
+                "Network Time (NTP)",
+                "Synchronize system clock with network time servers",
+                "ntp time clock timedate timezone",
+                0,
+            ),
             (
                 "Suspend",
                 "Suspend system to RAM (sleep mode)",
                 "sleep standby",
-                0,
+                1,
             ),
             (
                 "Hibernate",
                 "Hibernate system state to disk",
                 "hibernate disk",
-                1,
+                2,
             ),
-            ("Reboot", "Restart the computer", "restart reboot", 2),
+            ("Reboot", "Restart the computer", "restart reboot", 3),
             (
                 "Power Off",
                 "Shut down the computer system",
                 "shutdown poweroff halt power off",
-                3,
+                4,
             ),
         ];
 
@@ -669,10 +706,43 @@ impl App {
                 if self.focus == Focus::Sidebar {
                     self.focus = Focus::Content;
                     self.selected_item = 0;
+                } else if self.focus == Focus::Content {
+                    let vis = self.visible_categories();
+                    if let Some(cat) = vis.get(self.selected_category) {
+                        if cat == "Display"
+                            && self.display_brightness.is_some()
+                            && self.selected_item == 0
+                        {
+                            if let Some(cur) = self.display_brightness {
+                                let new_val = cur.saturating_add(5).min(100);
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ =
+                                        tx.try_send(BackendCommand::SetDisplayBrightness(new_val));
+                                }
+                            }
+                        }
+                    }
                 }
             }
             KeyCode::Left | KeyCode::Char('h') | KeyCode::Esc => {
                 if self.focus == Focus::Content {
+                    let vis = self.visible_categories();
+                    if let Some(cat) = vis.get(self.selected_category) {
+                        if (key.code == KeyCode::Left || key.code == KeyCode::Char('h'))
+                            && cat == "Display"
+                            && self.display_brightness.is_some()
+                            && self.selected_item == 0
+                        {
+                            if let Some(cur) = self.display_brightness {
+                                let new_val = cur.saturating_sub(5);
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ =
+                                        tx.try_send(BackendCommand::SetDisplayBrightness(new_val));
+                                }
+                            }
+                            return;
+                        }
+                    }
                     self.focus = Focus::Sidebar;
                 }
             }
@@ -706,10 +776,17 @@ impl App {
                                     + self.audio_streams.len()
                             }
                             "Services" => self.services.len(),
-                            "Display" => self.monitors.len(),
+                            "Display" => {
+                                let base = if self.display_brightness.is_some() {
+                                    1
+                                } else {
+                                    0
+                                };
+                                base + self.monitors.len()
+                            }
                             "Applications" => self.applications.len(),
                             "Appearance" => 1,
-                            "System" => 4,
+                            "System" => 5,
                             _ => 0,
                         };
                         if max_items > 0 && self.selected_item < max_items - 1 {
@@ -828,19 +905,34 @@ impl App {
                                 let _ = tx
                                     .try_send(BackendCommand::LaunchApplication(app.exec.clone()));
                             }
-                        } else if cat == "System" && is_enter {
-                            let (action, prompt) = match self.selected_item {
-                                0 => ("suspend", "Suspend the system to RAM now?"),
-                                1 => ("hibernate", "Hibernate session to swap and power off?"),
-                                2 => ("reboot", "Restart the computer now? (Unsaved work will be lost)"),
-                                3 => ("poweroff", "Shut down and power off the computer? (Unsaved work will be lost)"),
-                                _ => ("", ""),
-                            };
-                            if !action.is_empty() {
-                                self.confirm_action = Some((
-                                    prompt.to_string(),
-                                    BackendCommand::SystemPowerAction(action.to_string()),
-                                ));
+                        } else if cat == "System" {
+                            if self.selected_item == 0 {
+                                if let Some(sys_info) = &self.system_info {
+                                    let new_state = !sys_info.ntp_active;
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ = tx.try_send(BackendCommand::ToggleNTP(new_state));
+                                    }
+                                }
+                            } else if is_enter {
+                                let (action, prompt) = match self.selected_item {
+                                    1 => ("suspend", "Suspend the system to RAM now?"),
+                                    2 => ("hibernate", "Hibernate session to swap and power off?"),
+                                    3 => (
+                                        "reboot",
+                                        "Restart the computer now? (Unsaved work will be lost)",
+                                    ),
+                                    4 => (
+                                        "poweroff",
+                                        "Shut down and power off the computer? (Unsaved work will be lost)",
+                                    ),
+                                    _ => ("", ""),
+                                };
+                                if !action.is_empty() {
+                                    self.confirm_action = Some((
+                                        prompt.to_string(),
+                                        BackendCommand::SystemPowerAction(action.to_string()),
+                                    ));
+                                }
                             }
                         }
                     }
@@ -899,50 +991,77 @@ impl App {
                                         tx.try_send(BackendCommand::SetAudioVolume(id, new_vol));
                                 }
                             }
-                        } else if cat == "Display" && self.selected_item < self.monitors.len() {
-                            let m = &self.monitors[self.selected_item];
-                            if !m.supported_modes.is_empty() {
-                                let _current_res =
-                                    format!("{}x{}@{:.2}Hz", m.width, m.height, m.refresh_rate);
-                                let current_idx = m
-                                    .supported_modes
-                                    .iter()
-                                    .position(|s| {
-                                        s.starts_with(&format!("{}x{}", m.width, m.height))
-                                    })
-                                    .unwrap_or(0);
-                                let new_idx = if increase {
-                                    (current_idx + 1) % m.supported_modes.len()
-                                } else if current_idx == 0 {
-                                    m.supported_modes.len() - 1
+                        } else if cat == "Display" {
+                            let has_brightness = self.display_brightness.is_some();
+                            if has_brightness && self.selected_item == 0 {
+                                if let Some(cur) = self.display_brightness {
+                                    let new_val = if increase {
+                                        cur.saturating_add(5).min(100)
+                                    } else {
+                                        cur.saturating_sub(5)
+                                    };
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ = tx.try_send(BackendCommand::SetDisplayBrightness(
+                                            new_val,
+                                        ));
+                                    }
+                                }
+                            } else {
+                                let mon_idx = if has_brightness {
+                                    self.selected_item.saturating_sub(1)
                                 } else {
-                                    current_idx - 1
+                                    self.selected_item
                                 };
-                                let next_mode = &m.supported_modes[new_idx];
-                                if let Some(caps) = next_mode.split('@').next() {
-                                    let parts: Vec<&str> = caps.split('x').collect();
-                                    if parts.len() == 2 {
-                                        if let (Ok(w), Ok(h)) =
-                                            (parts[0].parse::<i32>(), parts[1].parse::<i32>())
-                                        {
-                                            let refresh =
-                                                if let Some(hz) = next_mode.split('@').nth(1) {
-                                                    hz.trim_end_matches("Hz")
-                                                        .parse::<f64>()
-                                                        .unwrap_or(60.0)
-                                                } else {
-                                                    60.0
-                                                };
+                                if mon_idx < self.monitors.len() {
+                                    let m = &self.monitors[mon_idx];
+                                    if !m.supported_modes.is_empty() {
+                                        let _current_res = format!(
+                                            "{}x{}@{:.2}Hz",
+                                            m.width, m.height, m.refresh_rate
+                                        );
+                                        let current_idx = m
+                                            .supported_modes
+                                            .iter()
+                                            .position(|s| {
+                                                s.starts_with(&format!("{}x{}", m.width, m.height))
+                                            })
+                                            .unwrap_or(0);
+                                        let new_idx = if increase {
+                                            (current_idx + 1) % m.supported_modes.len()
+                                        } else if current_idx == 0 {
+                                            m.supported_modes.len() - 1
+                                        } else {
+                                            current_idx - 1
+                                        };
+                                        let next_mode = &m.supported_modes[new_idx];
+                                        if let Some(caps) = next_mode.split('@').next() {
+                                            let parts: Vec<&str> = caps.split('x').collect();
+                                            if parts.len() == 2 {
+                                                if let (Ok(w), Ok(h)) = (
+                                                    parts[0].parse::<i32>(),
+                                                    parts[1].parse::<i32>(),
+                                                ) {
+                                                    let refresh = if let Some(hz) =
+                                                        next_mode.split('@').nth(1)
+                                                    {
+                                                        hz.trim_end_matches("Hz")
+                                                            .parse::<f64>()
+                                                            .unwrap_or(60.0)
+                                                    } else {
+                                                        60.0
+                                                    };
 
-                                            if let Some(tx) = &self.cmd_tx {
-                                                let _ = tx.try_send(
-                                                    BackendCommand::SetDisplayResolution(
-                                                        m.name.clone(),
-                                                        w,
-                                                        h,
-                                                        refresh,
-                                                    ),
-                                                );
+                                                    if let Some(tx) = &self.cmd_tx {
+                                                        let _ = tx.try_send(
+                                                            BackendCommand::SetDisplayResolution(
+                                                                m.name.clone(),
+                                                                w,
+                                                                h,
+                                                                refresh,
+                                                            ),
+                                                        );
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -1045,13 +1164,18 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let audio_backend = crate::backends::audio::WpctlBackend::new();
     let services_backend = crate::backends::systemd::SystemdBackend::new().await.ok();
 
-    let display_backend = {
+    let display_backend: Option<Box<dyn DisplayBackend>> = {
         let is_hyprland = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok();
         let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
         if is_hyprland && session_type == "wayland" {
-            crate::backends::display::HyprlandBackend::new().ok()
+            crate::backends::display::HyprlandBackend::new()
+                .ok()
+                .map(|b| Box::new(b) as Box<dyn DisplayBackend>)
         } else {
-            None
+            Some(
+                Box::new(crate::backends::display::GenericDisplayBackend::new())
+                    as Box<dyn DisplayBackend>,
+            )
         }
     };
 
@@ -1070,13 +1194,18 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         .await
         .ok();
     let sys_backend_for_cmd = crate::backends::system::RealSystemBackend::new().await;
-    let display_backend_for_cmd = {
+    let display_backend_for_cmd: Option<Box<dyn DisplayBackend>> = {
         let is_hyprland = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok();
         let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
         if is_hyprland && session_type == "wayland" {
-            crate::backends::display::HyprlandBackend::new().ok()
+            crate::backends::display::HyprlandBackend::new()
+                .ok()
+                .map(|b| Box::new(b) as Box<dyn DisplayBackend>)
         } else {
-            None
+            Some(
+                Box::new(crate::backends::display::GenericDisplayBackend::new())
+                    as Box<dyn DisplayBackend>,
+            )
         }
     };
     let tx_cmd_resp = tx.clone();
@@ -1095,7 +1224,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         .await;
 
     tokio::spawn(async move {
-        let mut last_poll = tokio::time::Instant::now();
+        let mut last_poll = tokio::time::Instant::now()
+            .checked_sub(Duration::from_secs(10))
+            .unwrap_or_else(tokio::time::Instant::now);
         loop {
             tokio::select! {
                 Some(cmd) = cmd_rx.recv() => {
@@ -1519,9 +1650,101 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         BackendCommand::SystemPowerAction(action) => {
                             use crate::backends::SystemBackend;
                             if let Err(e) = sys_backend_for_cmd.power_action(&action).await {
-                                let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Power action failed: {}", e))).await;
+                                let _ = tx_cmd_resp
+                                    .send(AppEvent::Notification(format!(
+                                        "Power action failed: {}",
+                                        e
+                                    )))
+                                    .await;
                             } else {
-                                let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Executing {}...", action))).await;
+                                let _ = tx_cmd_resp
+                                    .send(AppEvent::Notification(format!(
+                                        "Executing {}...",
+                                        action
+                                    )))
+                                    .await;
+                            }
+                        }
+                        BackendCommand::SetDisplayBrightness(target) => {
+                            if let Some(disp) = &display_backend_for_cmd {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    disp.set_brightness(target),
+                                    disp.get_brightness(),
+                                    |b: &Option<u32>| {
+                                        if let Some(val) = b {
+                                            (*val as i32 - target as i32).abs() <= 5
+                                        } else {
+                                            false
+                                        }
+                                    },
+                                    10,
+                                    50
+                                );
+
+                                if mutation_ok {
+                                    if verified {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(format!(
+                                                "Brightness set to {}%",
+                                                target
+                                            )))
+                                            .await;
+                                    } else {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(
+                                                "Brightness change could not be verified."
+                                                    .to_string(),
+                                            ))
+                                            .await;
+                                    }
+                                } else {
+                                    let err_msg = mutation_error.unwrap_or_else(|| {
+                                        "Failed to set display brightness.".to_string()
+                                    });
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+
+                                if let Ok(b) = final_state {
+                                    let _ = tx_cmd_resp.send(AppEvent::UpdateBrightness(b)).await;
+                                }
+                            }
+                        }
+                        BackendCommand::ToggleNTP(target) => {
+                            let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                sys_backend_for_cmd.set_ntp(target),
+                                sys_backend_for_cmd.get_info(),
+                                |info: &SystemInfo| info.ntp_active == target,
+                                15,
+                                100
+                            );
+
+                            if mutation_ok {
+                                if verified {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::Notification(format!(
+                                            "NTP synchronization {}",
+                                            if target { "enabled" } else { "disabled" }
+                                        )))
+                                        .await;
+                                } else {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::Notification(
+                                            "NTP synchronization change could not be verified."
+                                                .to_string(),
+                                        ))
+                                        .await;
+                                }
+                            } else {
+                                let err_msg = mutation_error.unwrap_or_else(|| {
+                                    "Failed to configure NTP synchronization (polkit authorization may be required)."
+                                        .to_string()
+                                });
+                                let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                            }
+
+                            if let Ok(info) = final_state {
+                                let _ =
+                                    tx_cmd_resp.send(AppEvent::UpdateSystemInfo(info)).await;
                             }
                         }
                     }
@@ -1534,6 +1757,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                     if let Some(net) = &net_backend {
                         if let (Ok(enabled), Ok(nets)) = (net.wifi_enabled().await, net.networks().await) {
                             let _ = tx_backend.send(AppEvent::UpdateNetworks(enabled, nets)).await;
+                        }
+                        if let Ok(conn) = net.get_active_connection().await {
+                            let _ = tx_backend.send(AppEvent::UpdateActiveConnection(conn)).await;
                         }
                     }
                     if let Some(bt) = &bt_backend {
@@ -1560,6 +1786,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                     if let Some(disp) = &display_backend {
                         if let Ok(monitors) = disp.get_monitors().await {
                             let _ = tx_backend.send(AppEvent::UpdateMonitors(monitors)).await;
+                        }
+                        if let Ok(b) = disp.get_brightness().await {
+                            let _ = tx_backend.send(AppEvent::UpdateBrightness(b)).await;
                         }
                     }
                     if let Some(appr) = &appearance_backend {
@@ -1611,6 +1840,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                 }
                 AppEvent::UpdateServices(services) => app_lock.services = services,
                 AppEvent::UpdateMonitors(monitors) => app_lock.monitors = monitors,
+                AppEvent::UpdateBrightness(b) => app_lock.display_brightness = b,
+                AppEvent::UpdateActiveConnection(conn) => app_lock.active_connection = conn,
                 AppEvent::UpdateAppearance(info) => app_lock.appearance_info = Some(info),
                 AppEvent::UpdateApplications(apps) => app_lock.applications = apps,
                 AppEvent::UpdateCapabilities(caps) => app_lock.capabilities = *caps,
@@ -1824,14 +2055,14 @@ mod tests {
         app.focus = Focus::Content;
         app.selected_item = 0;
 
-        // Navigate through all 4 power actions
+        // Navigate through all items (NTP + 4 power actions = 5 items)
         for _ in 0..10 {
             app.handle_key(press(KeyCode::Down));
         }
-        // Must stay at 3 (max index for 4 items)
+        // Must stay at 4 (max index for 5 items)
         assert_eq!(
-            app.selected_item, 3,
-            "System category should have max 4 items (0-3)"
+            app.selected_item, 4,
+            "System category should have max 5 items (0-4)"
         );
     }
 
@@ -1841,7 +2072,7 @@ mod tests {
         let sys_idx = app.categories.iter().position(|c| c == "System").unwrap();
         app.selected_category = sys_idx;
         app.focus = Focus::Content;
-        app.selected_item = 3; // "Power Off"
+        app.selected_item = 4; // "Power Off" (index 4)
 
         // Space key must NOT trigger power action confirmation or execution
         app.handle_key(press(KeyCode::Char(' ')));
@@ -1866,7 +2097,7 @@ mod tests {
 
         // Cancel and test Reboot distinct prompt
         app.confirm_action = None;
-        app.selected_item = 2; // Reboot
+        app.selected_item = 3; // Reboot (index 3)
         app.handle_key(press(KeyCode::Enter));
         let reboot_prompt = app.confirm_action.as_ref().unwrap().0.clone();
         assert!(
@@ -1927,13 +2158,13 @@ mod tests {
         assert!(!app.search_results.is_empty());
         assert_eq!(app.search_results[0].title, "Power Off");
         assert_eq!(app.search_results[0].category, "System");
-        assert_eq!(app.search_results[0].target_item_idx, 3);
+        assert_eq!(app.search_results[0].target_item_idx, 4);
 
         app.search_query = "reboot".to_string();
         app.update_search_results();
         assert_eq!(app.search_results[0].title, "Reboot");
         assert_eq!(app.search_results[0].category, "System");
-        assert_eq!(app.search_results[0].target_item_idx, 2);
+        assert_eq!(app.search_results[0].target_item_idx, 3);
     }
 
     #[test]
@@ -1963,7 +2194,7 @@ mod tests {
             app.selected_category, sys_idx,
             "Should navigate to System category"
         );
-        assert_eq!(app.selected_item, 2, "Should target Reboot item index");
+        assert_eq!(app.selected_item, 3, "Should target Reboot item index");
     }
 
     #[test]
@@ -2009,5 +2240,92 @@ mod tests {
             app.selected_item, 0,
             "selected_item must reset to 0 for empty list"
         );
+    }
+
+    #[test]
+    fn test_display_brightness_keys() {
+        let mut app = App::new();
+        let disp_idx = app.categories.iter().position(|c| c == "Display").unwrap();
+        app.selected_category = disp_idx;
+        app.focus = Focus::Content;
+        app.selected_item = 0;
+        app.display_brightness = Some(50);
+
+        let (tx, mut rx) = mpsc::channel(10);
+        app.cmd_tx = Some(tx);
+
+        // Increase via '+'
+        app.handle_key(press(KeyCode::Char('+')));
+        if let Ok(BackendCommand::SetDisplayBrightness(val)) = rx.try_recv() {
+            assert_eq!(val, 55, "Brightness should increase by 5");
+        } else {
+            panic!("Expected SetDisplayBrightness command on '+'");
+        }
+
+        // Decrease via '-'
+        app.handle_key(press(KeyCode::Char('-')));
+        if let Ok(BackendCommand::SetDisplayBrightness(val)) = rx.try_recv() {
+            assert_eq!(val, 45, "Brightness should decrease by 5");
+        } else {
+            panic!("Expected SetDisplayBrightness command on '-'");
+        }
+
+        // Right key also increases
+        app.handle_key(press(KeyCode::Right));
+        if let Ok(BackendCommand::SetDisplayBrightness(val)) = rx.try_recv() {
+            assert_eq!(val, 55, "Brightness should increase on Right arrow");
+        } else {
+            panic!("Expected SetDisplayBrightness command on Right");
+        }
+    }
+
+    #[test]
+    fn test_system_ntp_toggle_key() {
+        let mut app = App::new();
+        let sys_idx = app.categories.iter().position(|c| c == "System").unwrap();
+        app.selected_category = sys_idx;
+        app.focus = Focus::Content;
+        app.selected_item = 0; // NTP item
+
+        app.system_info = Some(SystemInfo {
+            hostname: "test-host".to_string(),
+            chassis: "laptop".to_string(),
+            distro: "Linux".to_string(),
+            kernel: "6.8".to_string(),
+            uptime: 1000,
+            memory_total: 16000000000,
+            memory_used: 8000000000,
+            timezone: "UTC".to_string(),
+            ntp_active: true,
+            disks: vec![],
+        });
+
+        let (tx, mut rx) = mpsc::channel(10);
+        app.cmd_tx = Some(tx);
+
+        // Press Enter on item 0
+        app.handle_key(press(KeyCode::Enter));
+        if let Ok(BackendCommand::ToggleNTP(active)) = rx.try_recv() {
+            assert!(!active, "Toggling active NTP should set to false");
+        } else {
+            panic!("Expected ToggleNTP command on Enter");
+        }
+    }
+
+    #[test]
+    fn test_search_brightness_and_ntp() {
+        let mut app = App::new();
+
+        app.search_query = "brightness".to_string();
+        app.update_search_results();
+        assert!(!app.search_results.is_empty());
+        assert_eq!(app.search_results[0].title, "Screen Brightness");
+        assert_eq!(app.search_results[0].category, "Display");
+
+        app.search_query = "ntp".to_string();
+        app.update_search_results();
+        assert!(!app.search_results.is_empty());
+        assert_eq!(app.search_results[0].title, "Network Time (NTP)");
+        assert_eq!(app.search_results[0].category, "System");
     }
 }

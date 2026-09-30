@@ -54,3 +54,31 @@ pub trait LogindManager {
     fn suspend(&self, interactive: bool) -> zbus::Result<()>;
     fn hibernate(&self, interactive: bool) -> zbus::Result<()>;
 }
+
+#[proxy(
+    interface = "org.freedesktop.timedate1",
+    default_service = "org.freedesktop.timedate1",
+    default_path = "/org/freedesktop/timedate1"
+)]
+pub trait TimedateManager {
+    #[zbus(property)]
+    fn timezone(&self) -> zbus::Result<String>;
+
+    #[zbus(property)]
+    fn ntp(&self) -> zbus::Result<bool>;
+
+    fn set_ntp(&self, active: bool, interactive: bool) -> zbus::Result<()>;
+}
+
+#[proxy(
+    interface = "org.freedesktop.hostname1",
+    default_service = "org.freedesktop.hostname1",
+    default_path = "/org/freedesktop/hostname1"
+)]
+pub trait HostnameManager {
+    #[zbus(property)]
+    fn hostname(&self) -> zbus::Result<String>;
+
+    #[zbus(property)]
+    fn chassis(&self) -> zbus::Result<String>;
+}

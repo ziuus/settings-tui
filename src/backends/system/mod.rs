@@ -1,8 +1,8 @@
-use super::{SystemBackend, SystemInfo};
-use crate::dbus::systemd::LogindManagerProxy;
+use super::{SystemBackend, SystemDiskInfo, SystemInfo};
+use crate::dbus::systemd::{HostnameManagerProxy, LogindManagerProxy, TimedateManagerProxy};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use sysinfo::System;
+use sysinfo::{Disks, System};
 use zbus::Connection;
 
 pub struct RealSystemBackend {
@@ -35,27 +35,90 @@ impl RealSystemBackend {
 #[async_trait]
 impl SystemBackend for RealSystemBackend {
     async fn get_info(&self) -> Result<SystemInfo> {
-        let mut sys = self
-            .sys
-            .lock()
-            .map_err(|_| anyhow!("System info lock poisoned"))?;
-        sys.refresh_memory();
+        let (memory_total, memory_used, uptime) = {
+            let mut sys = self
+                .sys
+                .lock()
+                .map_err(|_| anyhow!("System info lock poisoned"))?;
+            sys.refresh_memory();
+            (sys.total_memory(), sys.used_memory(), System::uptime())
+        };
+
+        let mut hostname = System::host_name().unwrap_or_else(|| "localhost".to_string());
+        let mut chassis = "system".to_string();
+        let mut timezone = "UTC".to_string();
+        let mut ntp_active = false;
+
+        if let Some(conn) = &self.connection {
+            if let Ok(host_proxy) = HostnameManagerProxy::new(conn).await {
+                if let Ok(h) = host_proxy.hostname().await {
+                    if !h.is_empty() {
+                        hostname = h;
+                    }
+                }
+                if let Ok(c) = host_proxy.chassis().await {
+                    if !c.is_empty() {
+                        chassis = c;
+                    }
+                }
+            }
+            if let Ok(time_proxy) = TimedateManagerProxy::new(conn).await {
+                if let Ok(tz) = time_proxy.timezone().await {
+                    timezone = tz;
+                }
+                if let Ok(ntp) = time_proxy.ntp().await {
+                    ntp_active = ntp;
+                }
+            }
+        }
+
+        let mut disks = Vec::new();
+        let sys_disks = Disks::new_with_refreshed_list();
+        for disk in &sys_disks {
+            let mount = disk.mount_point().to_string_lossy().to_string();
+            if mount.starts_with("/sys") || mount.starts_with("/proc") || mount.starts_with("/dev")
+            {
+                continue;
+            }
+            let total = disk.total_space();
+            if total > 0 {
+                disks.push(SystemDiskInfo {
+                    mount_point: mount,
+                    total_bytes: total,
+                    available_bytes: disk.available_space(),
+                    fs_type: disk.file_system().to_string_lossy().to_string(),
+                });
+            }
+        }
+        disks.sort_by(|a, b| a.mount_point.cmp(&b.mount_point));
 
         let distro = System::name().unwrap_or_else(|| "Unknown".to_string())
             + " "
             + &System::os_version().unwrap_or_default();
         let kernel = System::kernel_version().unwrap_or_else(|| "Unknown".to_string());
-        let uptime = System::uptime();
-        let memory_total = sys.total_memory();
-        let memory_used = sys.used_memory();
 
         Ok(SystemInfo {
+            hostname,
+            chassis,
             distro,
             kernel,
             uptime,
             memory_total,
             memory_used,
+            timezone,
+            ntp_active,
+            disks,
         })
+    }
+
+    async fn set_ntp(&self, active: bool) -> Result<()> {
+        if let Some(conn) = &self.connection {
+            let proxy = TimedateManagerProxy::new(conn).await?;
+            proxy.set_ntp(active, true).await?;
+            Ok(())
+        } else {
+            Err(anyhow!("systemd-timedated service unavailable"))
+        }
     }
 
     async fn power_action(&self, action: &str) -> Result<()> {
@@ -151,5 +214,24 @@ mod tests {
         assert!(backend.power_action("rm -rf /").await.is_err());
         assert!(backend.power_action("").await.is_err());
         assert!(backend.power_action("poweroff; reboot").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_system_backend_disks_and_host_info() {
+        let backend = RealSystemBackend::new_with_connection(None);
+        let info = backend.get_info().await.expect("Failed to get system info");
+        assert!(!info.hostname.is_empty(), "Hostname should be populated");
+        assert!(!info.chassis.is_empty(), "Chassis should be populated");
+        assert!(!info.timezone.is_empty(), "Timezone should be populated");
+        assert!(
+            !info.disks.is_empty(),
+            "Disks list should contain root filesystem"
+        );
+        let root = info.disks.iter().find(|d| d.mount_point == "/");
+        assert!(root.is_some(), "Root mount point must be detected");
+        assert!(
+            root.unwrap().total_bytes > 0,
+            "Root disk space must be positive"
+        );
     }
 }

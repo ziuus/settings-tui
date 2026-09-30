@@ -1,4 +1,4 @@
-use super::{Network, NetworkBackend, NetworkId};
+use super::{ActiveConnectionInfo, Network, NetworkBackend, NetworkId};
 use crate::dbus::network_manager::{
     AccessPointProxy, DeviceProxy, NetworkManagerProxy, WirelessDeviceProxy,
 };
@@ -100,6 +100,54 @@ impl NetworkBackend for NetworkManagerBackend {
         }
 
         Ok(unique_networks)
+    }
+
+    async fn get_active_connection(&self) -> Result<Option<ActiveConnectionInfo>> {
+        let output = std::process::Command::new("ip")
+            .args(["route", "show", "default"])
+            .output();
+
+        if let Ok(out) = output {
+            if out.status.success() {
+                let text = String::from_utf8_lossy(&out.stdout);
+                for line in text.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    let mut gw = String::new();
+                    let mut dev = String::new();
+                    let mut src = String::new();
+
+                    let mut i = 0;
+                    while i < parts.len() {
+                        if parts[i] == "via" && i + 1 < parts.len() {
+                            gw = parts[i + 1].to_string();
+                            i += 2;
+                        } else if parts[i] == "dev" && i + 1 < parts.len() {
+                            dev = parts[i + 1].to_string();
+                            i += 2;
+                        } else if parts[i] == "src" && i + 1 < parts.len() {
+                            src = parts[i + 1].to_string();
+                            i += 2;
+                        } else {
+                            i += 1;
+                        }
+                    }
+
+                    if !dev.is_empty() {
+                        return Ok(Some(ActiveConnectionInfo {
+                            interface: dev,
+                            ip_address: if src.is_empty() {
+                                "N/A".to_string()
+                            } else {
+                                src
+                            },
+                            gateway: if gw.is_empty() { "N/A".to_string() } else { gw },
+                        }));
+                    }
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     async fn connect(&self, network: &NetworkId) -> Result<()> {

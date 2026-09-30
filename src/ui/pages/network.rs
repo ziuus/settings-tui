@@ -8,7 +8,7 @@ use ratatui::{
 pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
     let mut text = vec![
         Line::from(Span::styled(
-            "Wi-Fi Settings",
+            "Network & Connections",
             Style::default()
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
@@ -16,24 +16,43 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         Line::from(""),
     ];
 
+    if let Some(conn) = &app.active_connection {
+        text.push(Line::from(vec![
+            Span::styled("  Interface:  ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                &conn.interface,
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("   •   IPv4: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(&conn.ip_address, Style::default().fg(Color::Green)),
+            Span::styled("   •   Gateway: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(&conn.gateway, Style::default().fg(Color::Gray)),
+        ]));
+        text.push(Line::from(""));
+    }
+
     let is_selected = content_active && app.selected_item == 0;
 
-    let wifi_desc = "Turn Wi-Fi on or off.";
+    let wifi_desc = "Turn Wi-Fi radio on or off.";
     let control = widgets::toggle(app.wifi_enabled, is_selected);
-    let wifi_lines = widgets::setting_row("Wi-Fi", wifi_desc, control, is_selected, 60);
+    let wifi_lines = widgets::setting_row("Wi-Fi Radio", wifi_desc, control, is_selected, 60);
 
     text.extend(wifi_lines);
     text.push(Line::from(""));
 
     if app.networks.is_empty() && app.wifi_enabled {
         text.push(Line::from(Span::styled(
-            "  No networks found.",
+            "  No Wi-Fi networks found in range.",
             Style::default().fg(Color::DarkGray),
         )));
     } else if app.wifi_enabled {
         text.push(Line::from(Span::styled(
-            "  Available Networks",
-            Style::default().fg(Color::Gray),
+            "Available Networks",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         )));
         text.push(Line::from(""));
 
@@ -63,8 +82,8 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             text.extend(net_lines);
 
             let strength_lines = widgets::setting_row(
-                "Strength",
-                "Signal strength",
+                "Signal Strength",
+                "Wi-Fi signal quality percentage",
                 widgets::value_read_only(&format!("{}%", net.strength), false),
                 false,
                 60,
