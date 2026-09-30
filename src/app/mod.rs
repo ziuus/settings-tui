@@ -209,24 +209,64 @@ impl App {
                     return 100;
                 }
                 if t.contains(query) {
-                    return 80;
+                    return 85;
                 }
 
-                if query == "microphone" && (t.contains("mic") || d.contains("input")) {
+                if (query == "microphone" || query == "mic")
+                    && (t.contains("mic") || d.contains("input"))
+                {
                     return 90;
                 }
-                if query == "wifi" && t.contains("wi-fi") {
+                if (query == "wifi" || query == "wi-fi")
+                    && (t.contains("wi-fi") || t.contains("wifi") || c.contains("network"))
+                {
+                    return 90;
+                }
+                if (query == "volume" || query == "speaker" || query == "audio" || query == "sound")
+                    && c == "sound"
+                {
+                    return 85;
+                }
+                if (query == "refresh rate"
+                    || query == "hz"
+                    || query == "resolution"
+                    || query == "display"
+                    || query == "screen")
+                    && c == "display"
+                {
+                    return 85;
+                }
+                if (query == "dark" || query == "light" || query == "theme" || query == "color")
+                    && c == "appearance"
+                {
+                    return 90;
+                }
+                if (query == "battery" || query == "power" || query == "charge") && c == "power" {
+                    return 85;
+                }
+                if (query == "service" || query == "systemd" || query == "daemon")
+                    && c == "services"
+                {
+                    return 80;
+                }
+                if (query == "sleep"
+                    || query == "restart"
+                    || query == "shutdown"
+                    || query == "power off"
+                    || query == "reboot")
+                    && c == "system"
+                {
                     return 90;
                 }
 
                 if d.contains(query) {
                     return 60;
                 }
-                if c.contains(query) {
-                    return 40;
-                }
                 if e.contains(query) {
-                    return 20;
+                    return 45;
+                }
+                if c.contains(query) {
+                    return 30;
                 }
 
                 0
@@ -235,12 +275,18 @@ impl App {
         // Search Audio Sinks
         let mut audio_idx = 0;
         for dev in &self.audio_sinks {
-            let score = calc_score(&dev.description, "Sound", "Output Device", &dev.name, &q);
+            let score = calc_score(
+                &dev.description,
+                "Sound",
+                "Output Device Volume",
+                &dev.name,
+                &q,
+            );
             if score > 0 {
                 self.search_results.push(SearchResult {
                     title: dev.description.clone(),
                     category: "Sound".to_string(),
-                    description: "Output Device".to_string(),
+                    description: "Output Device Volume".to_string(),
                     target_item_idx: audio_idx,
                     score,
                 });
@@ -250,12 +296,18 @@ impl App {
 
         // Search Audio Sources
         for dev in &self.audio_sources {
-            let score = calc_score(&dev.description, "Sound", "Input Device", &dev.name, &q);
+            let score = calc_score(
+                &dev.description,
+                "Sound",
+                "Input Device Volume / Microphone",
+                &dev.name,
+                &q,
+            );
             if score > 0 {
                 self.search_results.push(SearchResult {
                     title: dev.description.clone(),
                     category: "Sound".to_string(),
-                    description: "Input Device".to_string(),
+                    description: "Input Device Volume / Microphone".to_string(),
                     target_item_idx: audio_idx,
                     score,
                 });
@@ -265,12 +317,18 @@ impl App {
 
         // Search Audio Streams
         for dev in &self.audio_streams {
-            let score = calc_score(&dev.application_name, "Sound", "Application Audio", "", &q);
+            let score = calc_score(
+                &dev.application_name,
+                "Sound",
+                "Application Audio Stream Volume",
+                "",
+                &q,
+            );
             if score > 0 {
                 self.search_results.push(SearchResult {
                     title: dev.application_name.clone(),
                     category: "Sound".to_string(),
-                    description: "Application Audio".to_string(),
+                    description: "Application Audio Stream Volume".to_string(),
                     target_item_idx: audio_idx,
                     score,
                 });
@@ -279,7 +337,13 @@ impl App {
         }
 
         // Search Network
-        let wifi_score = calc_score("Wi-Fi Switch", "Network", "Turn Wi-Fi on or off", "", &q);
+        let wifi_score = calc_score(
+            "Wi-Fi Switch",
+            "Network",
+            "Turn Wi-Fi on or off",
+            "wireless network connection",
+            &q,
+        );
         if wifi_score > 0 {
             self.search_results.push(SearchResult {
                 title: "Wi-Fi Switch".to_string(),
@@ -291,34 +355,81 @@ impl App {
         }
 
         for (i, net) in self.networks.iter().enumerate() {
-            let score = calc_score(&net.name, "Network", "Saved/Available Wi-Fi", "", &q);
+            let score = calc_score(
+                &net.name,
+                "Network",
+                "Saved/Available Wi-Fi Network",
+                "ssid wifi",
+                &q,
+            );
             if score > 0 {
                 self.search_results.push(SearchResult {
                     title: net.name.clone(),
                     category: "Network".to_string(),
-                    description: "Saved/Available Wi-Fi".to_string(),
-                    target_item_idx: i + 1, // +1 because Wi-Fi toggle is 0
+                    description: "Saved/Available Wi-Fi Network".to_string(),
+                    target_item_idx: i + 1,
+                    score,
+                });
+            }
+        }
+
+        // Search Bluetooth
+        let bt_score = calc_score(
+            "Bluetooth Power",
+            "Bluetooth",
+            "Enable or disable Bluetooth adapter",
+            "bt wireless pairing",
+            &q,
+        );
+        if bt_score > 0 {
+            self.search_results.push(SearchResult {
+                title: "Bluetooth Power".to_string(),
+                category: "Bluetooth".to_string(),
+                description: "Enable or disable Bluetooth adapter".to_string(),
+                target_item_idx: 0,
+                score: bt_score,
+            });
+        }
+
+        for (i, dev) in self.bluetooth_devices.iter().enumerate() {
+            let score = calc_score(
+                &dev.name,
+                "Bluetooth",
+                "Paired / Discovered Bluetooth Device",
+                &dev.address,
+                &q,
+            );
+            if score > 0 {
+                self.search_results.push(SearchResult {
+                    title: dev.name.clone(),
+                    category: "Bluetooth".to_string(),
+                    description: "Bluetooth Device".to_string(),
+                    target_item_idx: i + 1,
                     score,
                 });
             }
         }
 
         // Search Display
-        let display_score = calc_score(
-            "Display Settings",
-            "Display",
-            "Screen settings, refresh rate, resolution",
-            "",
-            &q,
-        );
-        if display_score > 0 {
-            for (i, mon) in self.monitors.iter().enumerate() {
+        for (i, mon) in self.monitors.iter().enumerate() {
+            let extra = format!("refresh rate resolution {}x{} hz", mon.width, mon.height);
+            let score = calc_score(
+                &mon.name,
+                "Display",
+                "Display Resolution & Refresh Rate",
+                &extra,
+                &q,
+            );
+            if score > 0 {
                 self.search_results.push(SearchResult {
                     title: mon.name.clone(),
                     category: "Display".to_string(),
-                    description: "Screen settings".to_string(),
+                    description: format!(
+                        "Resolution & Refresh Rate ({}x{}@{:.0}Hz)",
+                        mon.width, mon.height, mon.refresh_rate
+                    ),
                     target_item_idx: i,
-                    score: display_score,
+                    score,
                 });
             }
         }
@@ -327,15 +438,15 @@ impl App {
         let app_score = calc_score(
             "Dark Mode / Theming",
             "Appearance",
-            "Change system visual style, color scheme",
-            "dark theme light",
+            "Change system visual style, GTK theme, color scheme",
+            "dark light theme mode",
             &q,
         );
         if app_score > 0 {
             self.search_results.push(SearchResult {
                 title: "Dark Mode / Theming".to_string(),
                 category: "Appearance".to_string(),
-                description: "Change system visual style".to_string(),
+                description: "System visual style and color scheme".to_string(),
                 target_item_idx: 0,
                 score: app_score,
             });
@@ -345,18 +456,72 @@ impl App {
         let power_score = calc_score(
             "Power Profile & Battery",
             "Power",
-            "Energy management, battery",
-            "profile",
+            "Energy management, performance/power-saver profile, battery level",
+            "battery power charge profile",
             &q,
         );
         if power_score > 0 {
             self.search_results.push(SearchResult {
                 title: "Power Profile & Battery".to_string(),
                 category: "Power".to_string(),
-                description: "Energy management".to_string(),
+                description: "Energy management and battery status".to_string(),
                 target_item_idx: 0,
                 score: power_score,
             });
+        }
+
+        // Search System Power Actions
+        let sys_actions = [
+            (
+                "Suspend",
+                "Suspend system to RAM (sleep mode)",
+                "sleep standby",
+                0,
+            ),
+            (
+                "Hibernate",
+                "Hibernate system state to disk",
+                "hibernate disk",
+                1,
+            ),
+            ("Reboot", "Restart the computer", "restart reboot", 2),
+            (
+                "Power Off",
+                "Shut down the computer system",
+                "shutdown poweroff halt power off",
+                3,
+            ),
+        ];
+
+        for (action, desc, extra, idx) in sys_actions {
+            let score = calc_score(action, "System", desc, extra, &q);
+            if score > 0 {
+                self.search_results.push(SearchResult {
+                    title: action.to_string(),
+                    category: "System".to_string(),
+                    description: desc.to_string(),
+                    target_item_idx: idx,
+                    score,
+                });
+            }
+        }
+
+        // Search Applications
+        for (i, app) in self.applications.iter().enumerate() {
+            let score = calc_score(&app.name, "Applications", &app.description, &app.exec, &q);
+            if score > 0 {
+                self.search_results.push(SearchResult {
+                    title: app.name.clone(),
+                    category: "Applications".to_string(),
+                    description: if app.description.is_empty() {
+                        "Installed Application".to_string()
+                    } else {
+                        app.description.clone()
+                    },
+                    target_item_idx: i,
+                    score,
+                });
+            }
         }
 
         // Search Services
@@ -364,7 +529,7 @@ impl App {
             let score = calc_score(
                 &svc.name,
                 "Services",
-                "System Service",
+                "Systemd Service",
                 &svc.description,
                 &q,
             );
@@ -372,7 +537,11 @@ impl App {
                 self.search_results.push(SearchResult {
                     title: svc.name.clone(),
                     category: "Services".to_string(),
-                    description: "System Service".to_string(),
+                    description: if svc.description.is_empty() {
+                        "Systemd Service".to_string()
+                    } else {
+                        svc.description.clone()
+                    },
                     target_item_idx: i,
                     score,
                 });
@@ -1545,5 +1714,71 @@ mod tests {
             app.notifications.is_empty(),
             "Notifications should expire after timer"
         );
+    }
+
+    #[test]
+    fn test_search_wifi() {
+        let mut app = App::new();
+        app.search_query = "wifi".to_string();
+        app.update_search_results();
+        assert!(!app.search_results.is_empty());
+        assert_eq!(app.search_results[0].title, "Wi-Fi Switch");
+        assert_eq!(app.search_results[0].category, "Network");
+    }
+
+    #[test]
+    fn test_search_bluetooth() {
+        let mut app = App::new();
+        app.search_query = "bluetooth".to_string();
+        app.update_search_results();
+        assert!(!app.search_results.is_empty());
+        assert!(app.search_results.iter().any(|r| r.category == "Bluetooth"));
+    }
+
+    #[test]
+    fn test_search_power_off_and_reboot() {
+        let mut app = App::new();
+        app.search_query = "power off".to_string();
+        app.update_search_results();
+        assert!(!app.search_results.is_empty());
+        assert_eq!(app.search_results[0].title, "Power Off");
+        assert_eq!(app.search_results[0].category, "System");
+        assert_eq!(app.search_results[0].target_item_idx, 3);
+
+        app.search_query = "reboot".to_string();
+        app.update_search_results();
+        assert_eq!(app.search_results[0].title, "Reboot");
+        assert_eq!(app.search_results[0].category, "System");
+        assert_eq!(app.search_results[0].target_item_idx, 2);
+    }
+
+    #[test]
+    fn test_search_dark_mode() {
+        let mut app = App::new();
+        app.search_query = "dark".to_string();
+        app.update_search_results();
+        assert!(!app.search_results.is_empty());
+        assert_eq!(app.search_results[0].category, "Appearance");
+    }
+
+    #[test]
+    fn test_search_selection_navigates_to_target_setting() {
+        let mut app = App::new();
+        app.is_searching = true;
+        app.search_query = "reboot".to_string();
+        app.update_search_results();
+        assert!(!app.search_results.is_empty());
+
+        // Press Enter on the search result
+        app.handle_key(press(KeyCode::Enter));
+
+        assert!(!app.is_searching, "Search mode should exit on selection");
+        assert_eq!(app.focus, Focus::Content, "Focus should switch to content");
+        let sys_idx = app.categories.iter().position(|c| c == "System").unwrap();
+        assert_eq!(
+            app.selected_category, sys_idx,
+            "Should navigate to System category"
+        );
+        assert_eq!(app.selected_item, 2, "Should target Reboot item index");
     }
 }
