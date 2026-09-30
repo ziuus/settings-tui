@@ -3,19 +3,24 @@ use std::io::{self, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
+use std::os::unix::fs::PermissionsExt;
+
 /// Performs an atomic, crash-safe file write with strict 0o600 permissions.
 ///
 /// Steps:
 /// 1. Ensures parent directory exists.
-/// 2. Creates a unique temporary file in the same directory (guaranteeing same filesystem mount).
-/// 3. Enforces user-only read/write permissions (0o600).
-/// 4. Writes content and invokes `sync_all()` (fsync) to flush OS buffers to storage.
-/// 5. Performs atomic rename (`std::fs::rename`).
-/// 6. Flushes parent directory metadata.
+/// 2. Handles symlinks safely by resolving the canonical target (preserving dotfiles).
+/// 3. Creates a unique temporary file in the same directory (guaranteeing same filesystem mount).
+/// 4. Explicitly enforces 0o600 permissions, immune to process umask.
+/// 5. Writes content and invokes `sync_all()` (fsync) to flush OS buffers to storage.
+/// 6. Creates a `.bak` backup of any existing file.
+/// 7. Performs atomic rename (`std::fs::rename`).
+/// 8. Cleans up temporary file on any error.
+/// 9. Flushes parent directory metadata.
 #[allow(dead_code)]
 pub fn atomic_write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, content: C) -> io::Result<()> {
-    let path = path.as_ref();
-    let parent = path.parent().ok_or_else(|| {
+    let raw_path = path.as_ref();
+    let parent = raw_path.parent().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
             "Target path must have a parent directory",
@@ -26,16 +31,25 @@ pub fn atomic_write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, content: C) -> io::
         fs::create_dir_all(parent)?;
     }
 
+    // Resolve real target if path is an existing symlink (preserving dotfile links safely)
+    let target_path = if raw_path.is_symlink() {
+        fs::canonicalize(raw_path).unwrap_or_else(|_| raw_path.to_path_buf())
+    } else {
+        raw_path.to_path_buf()
+    };
+
+    let target_parent = target_path.parent().unwrap_or(parent);
+
     let pid = std::process::id();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let filename = path
+    let filename = target_path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("config");
-    let tmp_path = parent.join(format!(".tmp.{}.{}.{}", filename, pid, now));
+    let tmp_path = target_parent.join(format!(".tmp.{}.{}.{}", filename, pid, now));
 
     // Open with strict 0o600 permissions (user only)
     let mut file = fs::OpenOptions::new()
@@ -44,18 +58,35 @@ pub fn atomic_write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, content: C) -> io::
         .mode(0o600)
         .open(&tmp_path)?;
 
-    file.write_all(content.as_ref())?;
-    file.sync_all()?;
-    drop(file);
+    // Explicitly enforce 0o600 permissions regardless of process umask
+    let _ = fs::set_permissions(&tmp_path, fs::Permissions::from_mode(0o600));
 
-    fs::rename(&tmp_path, path)?;
+    let write_res = (|| -> io::Result<()> {
+        file.write_all(content.as_ref())?;
+        file.sync_all()?;
+        drop(file);
 
-    // Sync parent directory to ensure directory entry is durable on crash
-    if let Ok(dir) = File::open(parent) {
-        let _ = dir.sync_all();
+        // If target file already exists, create a backup (.bak) for crash safety
+        if target_path.exists() {
+            let bak_path = target_parent.join(format!("{}.bak", filename));
+            let _ = fs::copy(&target_path, &bak_path);
+        }
+
+        fs::rename(&tmp_path, &target_path)?;
+
+        // Sync parent directory to ensure directory entry is durable on crash
+        if let Ok(dir) = File::open(target_parent) {
+            let _ = dir.sync_all();
+        }
+
+        Ok(())
+    })();
+
+    if write_res.is_err() {
+        let _ = fs::remove_file(&tmp_path);
     }
 
-    Ok(())
+    write_res
 }
 
 /// Whitelists permitted systemctl power action verbs.
@@ -137,5 +168,32 @@ mod tests {
         assert!(!validate_service_name("svc; reboot"));
         assert!(!validate_service_name("svc\0malicious"));
         assert!(!validate_service_name("svc|curl"));
+    }
+
+    #[test]
+    fn test_atomic_write_backup_and_symlink() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("settings_tui_sec_{}", std::process::id()));
+        let real_file = temp_dir.join("real_config.json");
+        let symlink_file = temp_dir.join("symlink_config.json");
+
+        // First write
+        assert!(atomic_write(&real_file, b"v1").is_ok());
+
+        // Create symlink
+        std::os::unix::fs::symlink(&real_file, &symlink_file).expect("Failed to create symlink");
+
+        // Write to symlink target
+        assert!(atomic_write(&symlink_file, b"v2").is_ok());
+
+        // Target content should be updated
+        assert_eq!(fs::read(&real_file).unwrap(), b"v2");
+
+        // Backup file should exist with previous content (v1)
+        let backup_file = temp_dir.join("real_config.json.bak");
+        assert!(backup_file.exists());
+        assert_eq!(fs::read(&backup_file).unwrap(), b"v1");
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }
