@@ -76,6 +76,7 @@ pub trait NetworkBackend: Send + Sync {
     async fn networks(&self) -> Result<Vec<Network>>;
     async fn get_active_connection(&self) -> Result<Option<ActiveConnectionInfo>>;
     async fn connect(&self, network: &NetworkId) -> Result<()>;
+    async fn connect_with_password(&self, network: &NetworkId, password: &str) -> Result<()>;
     async fn disconnect(&self, network: &NetworkId) -> Result<()>;
     async fn forget_network(&self, network: &NetworkId) -> Result<()>;
 }

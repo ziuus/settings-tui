@@ -80,6 +80,7 @@ pub enum BackendCommand {
     SetDisplayResolution(String, i32, i32, f64),
     SetDisplayBrightness(u32),
     ConnectNetwork(crate::backends::NetworkId, bool),
+    ConnectNetworkWithPassword(crate::backends::NetworkId, String),
     ForgetNetwork(crate::backends::NetworkId),
     SetAudioDefault(u32),
     RemoveBluetoothDevice(crate::backends::BluetoothDeviceId),
@@ -92,6 +93,14 @@ pub enum BackendCommand {
 pub enum Focus {
     Sidebar,
     Content,
+}
+
+#[derive(Clone, Debug)]
+pub struct PasswordModal {
+    pub network_name: String,
+    pub network_id: crate::backends::NetworkId,
+    pub password: String,
+    pub show_password: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -132,6 +141,7 @@ pub struct App {
     pub search_results: Vec<SearchResult>,
     pub search_selected_idx: usize,
     pub confirm_action: Option<(String, BackendCommand)>,
+    pub password_modal: Option<PasswordModal>,
     pub capabilities: crate::platform::PlatformCapabilities,
 }
 
@@ -157,6 +167,7 @@ impl App {
             wifi_enabled: true,
             networks: vec![],
             confirm_action: None,
+            password_modal: None,
             capabilities: crate::platform::PlatformCapabilities::detect(
                 true, true, true, true, true, true, true,
             ),
@@ -637,6 +648,35 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: event::KeyEvent) {
+        if let Some(modal) = &mut self.password_modal {
+            match key.code {
+                KeyCode::Esc => {
+                    self.password_modal = None;
+                }
+                KeyCode::Enter => {
+                    if let Some(modal) = self.password_modal.take() {
+                        if let Some(tx) = &self.cmd_tx {
+                            let _ = tx.try_send(BackendCommand::ConnectNetworkWithPassword(
+                                modal.network_id,
+                                modal.password,
+                            ));
+                        }
+                    }
+                }
+                KeyCode::Tab => {
+                    modal.show_password = !modal.show_password;
+                }
+                KeyCode::Backspace => {
+                    modal.password.pop();
+                }
+                KeyCode::Char(c) => {
+                    modal.password.push(c);
+                }
+                _ => {}
+            }
+            return;
+        }
+
         if let Some((_, ref cmd)) = self.confirm_action {
             match key.code {
                 KeyCode::Char('y') | KeyCode::Enter => {
@@ -831,11 +871,27 @@ impl App {
                                 }
                             } else if self.selected_item <= self.networks.len() {
                                 let net = &self.networks[self.selected_item - 1];
-                                if let Some(tx) = &self.cmd_tx {
-                                    let _ = tx.try_send(BackendCommand::ConnectNetwork(
-                                        net.id.clone(),
-                                        !net.connected,
-                                    ));
+                                if net.connected {
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ = tx.try_send(BackendCommand::ConnectNetwork(
+                                            net.id.clone(),
+                                            false,
+                                        ));
+                                    }
+                                } else if net.saved || net.security == "Open" {
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ = tx.try_send(BackendCommand::ConnectNetwork(
+                                            net.id.clone(),
+                                            true,
+                                        ));
+                                    }
+                                } else {
+                                    self.password_modal = Some(PasswordModal {
+                                        network_name: net.name.clone(),
+                                        network_id: net.id.clone(),
+                                        password: String::new(),
+                                        show_password: false,
+                                    });
                                 }
                             }
                         } else if cat == "Bluetooth" {
@@ -1567,6 +1623,39 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                     }
                                 } else {
                                     let err_msg = mutation_error.unwrap_or_else(|| format!("Failed to {} network.", if connect { "connect" } else { "disconnect" }));
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+
+                                if let Ok(networks) = final_state {
+                                    if let Ok(enabled) = net.wifi_enabled().await {
+                                        let _ = tx_cmd_resp.send(AppEvent::UpdateNetworks(enabled, networks)).await;
+                                    }
+                                }
+                            }
+                        }
+                        BackendCommand::ConnectNetworkWithPassword(id, password) => {
+                            if let Some(net) = &network_backend_for_cmd {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    net.connect_with_password(&id, &password),
+                                    net.networks(),
+                                    |networks: &Vec<crate::backends::Network>| {
+                                        if let Some(n) = networks.iter().find(|n| n.id == id) {
+                                            n.connected
+                                        } else {
+                                            false
+                                        }
+                                    },
+                                    25, 200
+                                );
+
+                                if mutation_ok {
+                                    if verified {
+                                        let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Connected to '{}'.", id.0))).await;
+                                    } else {
+                                        let _ = tx_cmd_resp.send(AppEvent::Notification("Connection initiated, verification pending.".to_string())).await;
+                                    }
+                                } else {
+                                    let err_msg = mutation_error.unwrap_or_else(|| "Failed to connect with provided password.".to_string());
                                     let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                                 }
 
@@ -2470,5 +2559,102 @@ mod tests {
         assert!(rendered.contains("5 GHz"));
         assert!(rendered.contains("WPA2/WPA3"));
         assert!(rendered.contains("Disconnect [Del: Forget]"));
+    }
+
+    #[test]
+    fn test_network_password_modal_flow() {
+        let mut app = App::new();
+        let net_idx = app.categories.iter().position(|c| c == "Network").unwrap();
+        app.selected_category = net_idx;
+        app.focus = Focus::Content;
+
+        // Unsecured network requiring password
+        app.networks.push(crate::backends::Network {
+            id: crate::backends::NetworkId("SecuredGuest".to_string()),
+            name: "SecuredGuest".to_string(),
+            connected: false,
+            strength: 80,
+            saved: false,
+            security: "WPA2".to_string(),
+            frequency_mhz: 2437,
+        });
+
+        app.selected_item = 1;
+
+        let (tx, mut rx) = mpsc::channel(10);
+        app.cmd_tx = Some(tx);
+
+        // Press Enter -> should open PasswordModal instead of immediate connect
+        app.handle_key(press(KeyCode::Enter));
+        assert!(
+            app.password_modal.is_some(),
+            "Secured unsaved network should open password modal"
+        );
+
+        // Type "secretpass"
+        for ch in "secretpass".chars() {
+            app.handle_key(press(KeyCode::Char(ch)));
+        }
+
+        let modal = app.password_modal.as_ref().unwrap();
+        assert_eq!(modal.password, "secretpass");
+        assert!(!modal.show_password);
+
+        // Toggle visibility via Tab
+        app.handle_key(press(KeyCode::Tab));
+        assert!(app.password_modal.as_ref().unwrap().show_password);
+
+        // Backspace removes one char
+        app.handle_key(press(KeyCode::Backspace));
+        assert_eq!(app.password_modal.as_ref().unwrap().password, "secretpas");
+
+        // Press Enter to submit
+        app.handle_key(press(KeyCode::Enter));
+        assert!(app.password_modal.is_none(), "Enter should dismiss modal");
+
+        if let Ok(BackendCommand::ConnectNetworkWithPassword(id, pass)) = rx.try_recv() {
+            assert_eq!(id.0, "SecuredGuest");
+            assert_eq!(pass, "secretpas");
+        } else {
+            panic!("Expected ConnectNetworkWithPassword command");
+        }
+    }
+
+    #[test]
+    fn test_network_direct_connect_open() {
+        let mut app = App::new();
+        let net_idx = app.categories.iter().position(|c| c == "Network").unwrap();
+        app.selected_category = net_idx;
+        app.focus = Focus::Content;
+
+        // Open Wi-Fi (no password required)
+        app.networks.push(crate::backends::Network {
+            id: crate::backends::NetworkId("AirportFreeWiFi".to_string()),
+            name: "AirportFreeWiFi".to_string(),
+            connected: false,
+            strength: 95,
+            saved: false,
+            security: "Open".to_string(),
+            frequency_mhz: 5200,
+        });
+
+        app.selected_item = 1;
+
+        let (tx, mut rx) = mpsc::channel(10);
+        app.cmd_tx = Some(tx);
+
+        // Press Enter -> should connect directly
+        app.handle_key(press(KeyCode::Enter));
+        assert!(
+            app.password_modal.is_none(),
+            "Open network should not prompt for password"
+        );
+
+        if let Ok(BackendCommand::ConnectNetwork(id, connect)) = rx.try_recv() {
+            assert_eq!(id.0, "AirportFreeWiFi");
+            assert!(connect);
+        } else {
+            panic!("Expected ConnectNetwork command");
+        }
     }
 }

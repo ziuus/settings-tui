@@ -396,4 +396,65 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
         f.render_widget(modal, modal_area);
     }
+
+    // Render Wi-Fi Password modal
+    if let Some(modal) = &app.password_modal {
+        let modal_width = 54;
+        let modal_height = 7;
+        let modal_area = Rect {
+            x: (area.width.saturating_sub(modal_width)) / 2,
+            y: (area.height.saturating_sub(modal_height)) / 2,
+            width: modal_width,
+            height: modal_height,
+        };
+
+        f.render_widget(Clear, modal_area);
+
+        let masked = if modal.show_password {
+            format!("{}█", modal.password)
+        } else {
+            format!("{}█", "•".repeat(modal.password.len()))
+        };
+
+        let modal_text = vec![
+            Line::from(Span::styled(
+                format!("Connect to '{}'", modal.network_name),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Password: ", Style::default().fg(Color::Cyan)),
+                Span::styled(masked, Style::default().fg(Color::Yellow)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("[Enter]", Style::default().fg(Color::Cyan)),
+                Span::styled(" Connect   ", Style::default().fg(Color::DarkGray)),
+                Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
+                Span::styled(
+                    if modal.show_password {
+                        " Hide   "
+                    } else {
+                        " Show   "
+                    },
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled("[Esc]", Style::default().fg(Color::Red)),
+                Span::styled(" Cancel", Style::default().fg(Color::DarkGray)),
+            ]),
+        ];
+
+        let modal_widget = Paragraph::new(modal_text)
+            .alignment(ratatui::layout::Alignment::Center)
+            .block(
+                Block::default()
+                    .title(" Wi-Fi Authentication ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            );
+
+        f.render_widget(modal_widget, modal_area);
+    }
 }

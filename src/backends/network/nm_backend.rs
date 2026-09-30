@@ -223,6 +223,32 @@ impl NetworkBackend for NetworkManagerBackend {
         }
     }
 
+    async fn connect_with_password(&self, network: &NetworkId, password: &str) -> Result<()> {
+        let output = std::process::Command::new("nmcli")
+            .arg("device")
+            .arg("wifi")
+            .arg("connect")
+            .arg(&network.0)
+            .arg("password")
+            .arg(password)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .output()?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let msg = stderr
+                .lines()
+                .next()
+                .unwrap_or("Connection failed with provided password")
+                .trim()
+                .to_string();
+            Err(anyhow::anyhow!("{}", msg))
+        }
+    }
+
     async fn disconnect(&self, network: &NetworkId) -> Result<()> {
         let output = std::process::Command::new("nmcli")
             .arg("connection")
