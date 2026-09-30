@@ -15,6 +15,7 @@ jobs:
   publish-npm:
     name: Build Binary & Publish to npm
     runs-on: ubuntu-latest
+    environment: settings-tui-github-actions
     permissions:
       contents: write
       id-token: write
