@@ -147,5 +147,40 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             text.push(Line::from(""));
         }
     }
+
+    if !app.vpns.is_empty() {
+        text.push(Line::from(Span::styled(
+            "VPN & Secure Tunnels",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )));
+        text.push(Line::from(""));
+
+        let wifi_offset = if app.wifi_enabled {
+            app.networks.len() + 1
+        } else {
+            1
+        };
+
+        for (idx, vpn) in app.vpns.iter().enumerate() {
+            let is_vpn_sel = content_active && app.selected_item == wifi_offset + idx;
+            let status_desc = format!(
+                "Type: {} • {}",
+                vpn.vpn_type,
+                if vpn.active {
+                    "Connected"
+                } else {
+                    "Disconnected"
+                }
+            );
+            let action_text = if vpn.active { "Disconnect" } else { "Connect" };
+            let control = widgets::value_selector(action_text, is_vpn_sel);
+            let row = widgets::setting_row(&vpn.name, &status_desc, control, is_vpn_sel, 60);
+            text.extend(row);
+            text.push(Line::from(""));
+        }
+    }
+
     text
 }

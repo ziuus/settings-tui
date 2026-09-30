@@ -12,7 +12,7 @@ use crate::backends::{
     system::RealSystemBackend, AppEntry, AppearanceBackend, AppearanceInfo, ApplicationsBackend,
     AudioBackend, AudioDevice, BluetoothBackend, BluetoothDevice, DefaultAppsInfo, DisplayBackend,
     InputSettings, Monitor, Network, NetworkBackend, PowerBackend, PowerInfo, ServiceInfo,
-    ServicesBackend, SystemBackend, SystemInfo,
+    ServicesBackend, SystemBackend, SystemInfo, VpnConnection,
 };
 use crate::ui;
 use crate::Args;
@@ -65,6 +65,7 @@ pub enum AppEvent {
     UpdateCapabilities(Box<crate::platform::PlatformCapabilities>),
     UpdateBrightness(Option<u32>),
     UpdateActiveConnection(Option<crate::backends::ActiveConnectionInfo>),
+    UpdateVpns(Vec<VpnConnection>),
     Notification(String),
 }
 
@@ -93,6 +94,7 @@ pub enum BackendCommand {
     ToggleTapToClick(bool),
     ToggleLeftHanded(bool),
     SetPointerSensitivity(f64),
+    ToggleVpn(String, bool), // uuid, activate
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -141,6 +143,7 @@ pub struct App {
     pub applications: Vec<crate::backends::AppEntry>,
     pub default_apps: Option<DefaultAppsInfo>,
     pub input_settings: Option<InputSettings>,
+    pub vpns: Vec<VpnConnection>,
     pub cmd_tx: Option<mpsc::Sender<BackendCommand>>,
     pub notifications: Vec<String>,
     pub notification_timer: usize,
@@ -194,6 +197,7 @@ impl App {
             applications: vec![],
             default_apps: None,
             input_settings: None,
+            vpns: vec![],
             cmd_tx: None,
             notifications: vec![],
             notification_timer: 0,
@@ -699,9 +703,9 @@ impl App {
             let max_items = match cat.as_str() {
                 "Network" => {
                     if self.wifi_enabled {
-                        self.networks.len() + 1
+                        self.networks.len() + 1 + self.vpns.len()
                     } else {
-                        1
+                        1 + self.vpns.len()
                     }
                 }
                 "Bluetooth" => {
@@ -906,9 +910,9 @@ impl App {
                         let max_items = match cat.as_str() {
                             "Network" => {
                                 if self.wifi_enabled {
-                                    self.networks.len() + 1
+                                    self.networks.len() + 1 + self.vpns.len()
                                 } else {
-                                    1
+                                    1 + self.vpns.len()
                                 }
                             }
                             "Bluetooth" => {
@@ -999,6 +1003,24 @@ impl App {
                                         password: String::new(),
                                         show_password: false,
                                     });
+                                }
+                            } else {
+                                // VPN rows come after wifi rows
+                                let vpn_offset = if self.wifi_enabled {
+                                    self.networks.len() + 1
+                                } else {
+                                    1
+                                };
+                                let vpn_idx = self.selected_item.saturating_sub(vpn_offset);
+                                if vpn_idx < self.vpns.len() {
+                                    let vpn = &self.vpns[vpn_idx];
+                                    let activate = !vpn.active;
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ = tx.try_send(BackendCommand::ToggleVpn(
+                                            vpn.uuid.clone(),
+                                            activate,
+                                        ));
+                                    }
                                 }
                             }
                         } else if cat == "Bluetooth" {
@@ -2220,6 +2242,50 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 }
                             }
                         }
+                        BackendCommand::ToggleVpn(uuid, activate) => {
+                            if let Some(net) = &network_backend_for_cmd {
+                                let (mutation_ok, verified, _final_state, mutation_error) = execute_transaction!(
+                                    net.toggle_vpn(&uuid, activate),
+                                    net.get_vpns(),
+                                    |vpns: &Vec<VpnConnection>| {
+                                        if let Some(v) = vpns.iter().find(|v| v.uuid == uuid) {
+                                            v.active == activate
+                                        } else {
+                                            // VPN removed from list means it was brought down
+                                            !activate
+                                        }
+                                    },
+                                    20, 200 // VPN connections can take a few seconds
+                                );
+
+                                if mutation_ok {
+                                    if verified {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(format!(
+                                                "VPN {}",
+                                                if activate { "connected" } else { "disconnected" }
+                                            )))
+                                            .await;
+                                    } else {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(
+                                                "VPN change could not be verified.".to_string(),
+                                            ))
+                                            .await;
+                                    }
+                                } else {
+                                    let err_msg = mutation_error.unwrap_or_else(|| {
+                                        format!("Failed to {} VPN.", if activate { "connect" } else { "disconnect" })
+                                    });
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+
+                                // Always refresh VPN list after toggle attempt
+                                if let Ok(vpns) = net.get_vpns().await {
+                                    let _ = tx_cmd_resp.send(AppEvent::UpdateVpns(vpns)).await;
+                                }
+                            }
+                        }
                     }
                 }
                 _ = tokio::time::sleep_until(last_poll + Duration::from_secs(5)) => {
@@ -2233,6 +2299,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         }
                         if let Ok(conn) = net.get_active_connection().await {
                             let _ = tx_backend.send(AppEvent::UpdateActiveConnection(conn)).await;
+                        }
+                        if let Ok(vpns) = net.get_vpns().await {
+                            let _ = tx_backend.send(AppEvent::UpdateVpns(vpns)).await;
                         }
                     }
                     if let Some(bt) = &bt_backend {
@@ -2330,6 +2399,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                 }
                 AppEvent::UpdateInputSettings(settings) => {
                     app_lock.input_settings = Some(settings);
+                }
+                AppEvent::UpdateVpns(vpns) => {
+                    app_lock.vpns = vpns;
                 }
                 AppEvent::UpdateCapabilities(caps) => app_lock.capabilities = *caps,
                 AppEvent::Notification(msg) => {

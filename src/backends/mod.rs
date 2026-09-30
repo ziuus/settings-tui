@@ -72,6 +72,14 @@ pub struct Network {
     pub frequency_mhz: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VpnConnection {
+    pub uuid: String,
+    pub name: String,
+    pub vpn_type: String,
+    pub active: bool,
+}
+
 #[async_trait]
 pub trait NetworkBackend: Send + Sync {
     async fn wifi_enabled(&self) -> Result<bool>;
@@ -83,6 +91,8 @@ pub trait NetworkBackend: Send + Sync {
     async fn disconnect(&self, network: &NetworkId) -> Result<()>;
     async fn forget_network(&self, network: &NetworkId) -> Result<()>;
     async fn rescan(&self) -> Result<()>;
+    async fn get_vpns(&self) -> Result<Vec<VpnConnection>>;
+    async fn toggle_vpn(&self, uuid: &str, activate: bool) -> Result<()>;
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

@@ -1,4 +1,5 @@
 use super::{ActiveConnectionInfo, Network, NetworkBackend, NetworkId};
+use crate::backends::VpnConnection;
 use crate::dbus::network_manager::{
     AccessPointProxy, DeviceProxy, NetworkManagerProxy, WirelessDeviceProxy,
 };
@@ -309,5 +310,55 @@ impl NetworkBackend for NetworkManagerBackend {
             .args(["device", "wifi", "rescan"])
             .output();
         Ok(())
+    }
+
+    async fn get_vpns(&self) -> Result<Vec<VpnConnection>> {
+        let output = std::process::Command::new("nmcli")
+            .args(["-t", "-f", "UUID,NAME,TYPE,ACTIVE", "connection", "show"])
+            .output()?;
+        let mut vpns = Vec::new();
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let parts: Vec<&str> = line.split(':').collect();
+                if parts.len() >= 4 {
+                    let uuid = parts[0].trim().to_string();
+                    let name = parts[1].trim().to_string();
+                    let conn_type = parts[2].trim().to_string();
+                    let active = parts[3].trim().eq_ignore_ascii_case("yes");
+
+                    if conn_type == "vpn" || conn_type == "wireguard" || conn_type == "tun" {
+                        vpns.push(VpnConnection {
+                            uuid,
+                            name,
+                            vpn_type: conn_type,
+                            active,
+                        });
+                    }
+                }
+            }
+        }
+        Ok(vpns)
+    }
+
+    async fn toggle_vpn(&self, uuid: &str, activate: bool) -> Result<()> {
+        let action = if activate { "up" } else { "down" };
+        let output = std::process::Command::new("nmcli")
+            .args(["connection", action, "uuid", uuid])
+            .stderr(std::process::Stdio::piped())
+            .output()?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let msg = stderr
+                .lines()
+                .next()
+                .unwrap_or("VPN action failed")
+                .trim()
+                .to_string();
+            Err(anyhow::anyhow!("{}", msg))
+        }
     }
 }
