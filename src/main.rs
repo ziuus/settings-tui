@@ -12,19 +12,41 @@ mod settings;
 mod ui;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    #[arg(short, long)]
-    search: Option<String>,
+#[command(
+    name = "settings-tui",
+    author = "Zius <zius@localhost>",
+    version,
+    about = "A production-grade universal Linux Settings Center for the terminal.",
+    long_about = "A keyboard-first, native settings application that communicates directly with Linux subsystems via D-Bus, systemd, NetworkManager, BlueZ, WirePlumber/PipeWire, and compositor protocols."
+)]
+pub struct Args {
+    #[arg(
+        short = 'q',
+        long,
+        help = "Launch directly in global search mode with initial query"
+    )]
+    pub search: Option<String>,
 
-    #[arg(long)]
-    section: Option<String>,
+    #[arg(
+        short = 's',
+        long,
+        help = "Jump directly to specified category (e.g. Network, Bluetooth, Sound, Power, Display, Services, System)"
+    )]
+    pub section: Option<String>,
 
-    #[arg(long)]
-    diagnose: bool,
+    #[arg(
+        short = 'd',
+        long,
+        help = "Inspect and display Linux platform capability & compatibility matrix and exit"
+    )]
+    pub diagnose: bool,
 
-    #[arg(short, long)]
-    config: Option<String>,
+    #[arg(
+        short = 'c',
+        long,
+        help = "Custom path to configuration file (default: ~/.config/settings-tui/config.json)"
+    )]
+    pub config: Option<String>,
 }
 
 #[tokio::main]
