@@ -150,10 +150,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         };
         if let Err(e) = serde_json::from_str::<config::SettingsConfig>(&content) {
-            eprintln!(
-                "Error: Malformed configuration file '{}': {}",
-                cfg_path, e
-            );
+            eprintln!("Error: Malformed configuration file '{}': {}", cfg_path, e);
             std::process::exit(1);
         }
     }
