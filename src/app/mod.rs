@@ -1359,36 +1359,82 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::SetAudioDefault(id) => {
-                            let (mutation_ok, _, _, _mutation_error) = execute_transaction!(
+                            let (mutation_ok, verified, final_state, _mutation_error) = execute_transaction!(
                                 audio_backend_for_cmd.set_default_sink(id),
-                                async { Ok::<(), ()>(()) },
-                                |_: &()| true,
-                                5, 50
+                                audio_backend_for_cmd.get_sinks(),
+                                |sinks: &Vec<crate::backends::AudioDevice>| {
+                                    sinks.iter().any(|s| s.id == id && s.is_default)
+                                },
+                                10, 50
                             );
-                            if !mutation_ok {
-                                let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Failed to set default device to {}", id))).await;
+                            if mutation_ok {
+                                if verified {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::Notification(
+                                            "Default audio device updated.".to_string(),
+                                        ))
+                                        .await;
+                                } else {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::Notification(
+                                            "Audio default change could not be verified."
+                                                .to_string(),
+                                        ))
+                                        .await;
+                                }
+                            } else {
+                                let _ = tx_cmd_resp
+                                    .send(AppEvent::Notification(format!(
+                                        "Failed to set default device to {}",
+                                        id
+                                    )))
+                                    .await;
                             }
-                            if let Ok(sinks) = audio_backend_for_cmd.get_sinks().await {
+                            if let Ok(sinks) = final_state {
                                 if let Ok(sources) = audio_backend_for_cmd.get_sources().await {
                                     if let Ok(streams) = audio_backend_for_cmd.get_streams().await {
-                                        let _ = tx_cmd_resp.send(AppEvent::UpdateAudio(sinks, sources, streams)).await;
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::UpdateAudio(sinks, sources, streams))
+                                            .await;
                                     }
                                 }
                             }
                         }
                         BackendCommand::RemoveBluetoothDevice(id) => {
                             if let Some(bt) = &bt_backend_for_cmd {
-                                let (mutation_ok, _, _, _mutation_error) = execute_transaction!(
+                                let (mutation_ok, verified, final_state, _mutation_error) = execute_transaction!(
                                     bt.remove_device(&id),
-                                    async { Ok::<(), ()>(()) },
-                                    |_: &()| true,
-                                    10, 50
+                                    bt.devices(),
+                                    |devices: &Vec<crate::backends::BluetoothDevice>| {
+                                        !devices.iter().any(|d| d.id == id)
+                                    },
+                                    10, 100
                                 );
-                                if !mutation_ok {
-                                    let _ = tx_cmd_resp.send(AppEvent::Notification("Failed to remove Bluetooth device.".to_string())).await;
+                                if mutation_ok {
+                                    if verified {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(
+                                                "Bluetooth device forgotten.".to_string(),
+                                            ))
+                                            .await;
+                                    } else {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(
+                                                "Device removal could not be verified.".to_string(),
+                                            ))
+                                            .await;
+                                    }
+                                } else {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::Notification(
+                                            "Failed to remove Bluetooth device.".to_string(),
+                                        ))
+                                        .await;
                                 }
-                                if let Ok(devices) = bt.devices().await {
-                                    let _ = tx_cmd_resp.send(AppEvent::UpdateBluetooth(devices)).await;
+                                if let Ok(devices) = final_state {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::UpdateBluetooth(devices))
+                                        .await;
                                 }
                             }
                         }
