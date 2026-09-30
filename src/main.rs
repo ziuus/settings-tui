@@ -106,6 +106,58 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    // Validate CLI section argument if provided
+    if let Some(sec) = &args.section {
+        let valid_categories = [
+            "Network",
+            "Bluetooth",
+            "Sound",
+            "Power",
+            "Display",
+            "Appearance",
+            "Applications",
+            "Services",
+            "System",
+        ];
+        if !valid_categories.iter().any(|c| c.eq_ignore_ascii_case(sec)) {
+            eprintln!(
+                "Error: Unknown settings category '{}'.\nAvailable categories: {}",
+                sec,
+                valid_categories.join(", ")
+            );
+            std::process::exit(1);
+        }
+    }
+
+    // Validate CLI custom config if provided
+    if let Some(cfg_path) = &args.config {
+        let path = std::path::Path::new(cfg_path);
+        if !path.exists() {
+            eprintln!(
+                "Error: Specified configuration file does not exist: {}",
+                cfg_path
+            );
+            std::process::exit(1);
+        }
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!(
+                    "Error: Cannot read configuration file '{}': {}",
+                    cfg_path, e
+                );
+                std::process::exit(1);
+            }
+        };
+        if let Err(e) = serde_json::from_str::<config::SettingsConfig>(&content) {
+            eprintln!(
+                "Error: Malformed configuration file '{}': {}",
+                cfg_path, e
+            );
+            std::process::exit(1);
+        }
+    }
+
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env().add_directive("settings_tui=debug".parse()?))
