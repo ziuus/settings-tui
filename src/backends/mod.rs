@@ -38,6 +38,7 @@ pub trait AudioBackend: Send + Sync {
     async fn get_sinks(&self) -> Result<Vec<AudioDevice>>;
     async fn get_sources(&self) -> Result<Vec<AudioDevice>>;
     async fn get_streams(&self) -> Result<Vec<AudioStream>>;
+    async fn get_volume(&self, id: u32) -> Result<(f64, bool)>;
     async fn set_default_sink(&self, id: u32) -> Result<()>;
     async fn set_volume(&self, id: u32, volume: f64) -> Result<()>;
     #[allow(dead_code)]

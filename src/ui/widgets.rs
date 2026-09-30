@@ -125,13 +125,49 @@ pub fn capability_banner<'a>(
     status: &crate::platform::CapabilityStatus,
 ) -> Vec<ratatui::text::Line<'a>> {
     match status {
-        crate::platform::CapabilityStatus::Supported => vec![],
+        crate::platform::CapabilityStatus::Mutable => vec![],
+        crate::platform::CapabilityStatus::ReadOnly(note) => vec![
+            ratatui::text::Line::from(vec![
+                Span::styled(
+                    " [READ ONLY] ",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(note.clone(), Style::default().fg(Color::Gray)),
+            ]),
+            ratatui::text::Line::from(""),
+        ],
+        crate::platform::CapabilityStatus::RequiresPermission(note) => vec![
+            ratatui::text::Line::from(vec![
+                Span::styled(
+                    " [PERMISSION REQUIRED] ",
+                    Style::default()
+                        .fg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(note.clone(), Style::default().fg(Color::Gray)),
+            ]),
+            ratatui::text::Line::from(""),
+        ],
         crate::platform::CapabilityStatus::Partial(reason) => vec![
             ratatui::text::Line::from(vec![
                 Span::styled(
                     " [PARTIAL SUPPORT] ",
                     Style::default()
                         .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(reason.clone(), Style::default().fg(Color::Gray)),
+            ]),
+            ratatui::text::Line::from(""),
+        ],
+        crate::platform::CapabilityStatus::Unsupported(reason) => vec![
+            ratatui::text::Line::from(vec![
+                Span::styled(
+                    " [UNSUPPORTED] ",
+                    Style::default()
+                        .fg(Color::LightRed)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(reason.clone(), Style::default().fg(Color::Gray)),

@@ -187,6 +187,21 @@ impl AudioBackend for WpctlBackend {
         Ok(Self::parse_streams(&dump))
     }
 
+    async fn get_volume(&self, id: u32) -> Result<(f64, bool)> {
+        let output = Command::new("wpctl")
+            .arg("get-volume")
+            .arg(id.to_string())
+            .output()?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let muted = text.contains("[MUTED]");
+        let vol = text
+            .split_whitespace()
+            .nth(1)
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        Ok((vol, muted))
+    }
+
     async fn set_default_sink(&self, id: u32) -> Result<()> {
         let status = Command::new("wpctl")
             .arg("set-default")

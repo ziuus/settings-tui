@@ -120,12 +120,21 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             let status = app.capabilities.for_category(c);
             let mut line_spans = vec![Span::styled(prefix, style), Span::styled(c.as_str(), style)];
             match status {
-                crate::platform::CapabilityStatus::Supported => {}
+                crate::platform::CapabilityStatus::Mutable => {}
+                crate::platform::CapabilityStatus::ReadOnly(_) => {
+                    line_spans.push(Span::styled(" [R]", Style::default().fg(Color::Cyan)));
+                }
+                crate::platform::CapabilityStatus::RequiresPermission(_) => {
+                    line_spans.push(Span::styled(" [*]", Style::default().fg(Color::Magenta)));
+                }
                 crate::platform::CapabilityStatus::Partial(_) => {
-                    line_spans.push(Span::styled(" ~", Style::default().fg(Color::Yellow)));
+                    line_spans.push(Span::styled(" [~]", Style::default().fg(Color::Yellow)));
+                }
+                crate::platform::CapabilityStatus::Unsupported(_) => {
+                    line_spans.push(Span::styled(" [x]", Style::default().fg(Color::LightRed)));
                 }
                 crate::platform::CapabilityStatus::Unavailable(_) => {
-                    line_spans.push(Span::styled(" !", Style::default().fg(Color::Red)));
+                    line_spans.push(Span::styled(" [!]", Style::default().fg(Color::Red)));
                 }
             }
             ListItem::new(Line::from(line_spans))

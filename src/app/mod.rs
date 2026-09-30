@@ -1166,39 +1166,82 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ToggleAudioMute(id, _is_sink) => {
-                            let (mutation_ok, _, _, _mutation_error) = execute_transaction!(
+                            let initial_muted = audio_backend_for_cmd
+                                .get_volume(id)
+                                .await
+                                .map(|(_, m)| m)
+                                .unwrap_or(false);
+                            let target_muted = !initial_muted;
+
+                            let (mutation_ok, verified, _final_state, _mutation_error) = execute_transaction!(
                                 audio_backend_for_cmd.toggle_mute(id),
-                                async { Ok::<(), ()>(()) },
-                                |_: &()| true,
-                                5, 50
+                                audio_backend_for_cmd.get_volume(id),
+                                |(_, muted): &(f64, bool)| *muted == target_muted,
+                                10, 50
                             );
-                            if !mutation_ok {
-                                let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Failed to mute device {}", id))).await;
+                            if mutation_ok {
+                                if verified {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::Notification(format!(
+                                            "Audio device {} {}",
+                                            id,
+                                            if target_muted { "muted" } else { "unmuted" }
+                                        )))
+                                        .await;
+                                } else {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::Notification(
+                                            "Audio mute state change could not be verified."
+                                                .to_string(),
+                                        ))
+                                        .await;
+                                }
+                            } else {
+                                let _ = tx_cmd_resp
+                                    .send(AppEvent::Notification(format!(
+                                        "Failed to toggle mute for audio device {}",
+                                        id
+                                    )))
+                                    .await;
                             }
-                            // The pw-mon listener will pick up the change and emit AppEvent::UpdateAudio.
-                            // We can also eagerly update it here.
                             if let Ok(sinks) = audio_backend_for_cmd.get_sinks().await {
                                 if let Ok(sources) = audio_backend_for_cmd.get_sources().await {
                                     if let Ok(streams) = audio_backend_for_cmd.get_streams().await {
-                                        let _ = tx_cmd_resp.send(AppEvent::UpdateAudio(sinks, sources, streams)).await;
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::UpdateAudio(sinks, sources, streams))
+                                            .await;
                                     }
                                 }
                             }
                         }
                         BackendCommand::SetAudioVolume(id, vol) => {
-                            let (mutation_ok, _, _, _mutation_error) = execute_transaction!(
+                            let (mutation_ok, verified, _final_state, _mutation_error) = execute_transaction!(
                                 audio_backend_for_cmd.set_volume(id, vol),
-                                async { Ok::<(), ()>(()) },
-                                |_: &()| true,
-                                5, 50
+                                audio_backend_for_cmd.get_volume(id),
+                                |(cur_vol, _): &(f64, bool)| (*cur_vol - vol).abs() < 0.03,
+                                10, 50
                             );
                             if !mutation_ok {
-                                let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Failed to set volume for device {}", id))).await;
+                                let _ = tx_cmd_resp
+                                    .send(AppEvent::Notification(format!(
+                                        "Failed to set volume for device {}",
+                                        id
+                                    )))
+                                    .await;
+                            } else if !verified {
+                                let _ = tx_cmd_resp
+                                    .send(AppEvent::Notification(
+                                        "Volume change could not be verified within threshold."
+                                            .to_string(),
+                                    ))
+                                    .await;
                             }
                             if let Ok(sinks) = audio_backend_for_cmd.get_sinks().await {
                                 if let Ok(sources) = audio_backend_for_cmd.get_sources().await {
                                     if let Ok(streams) = audio_backend_for_cmd.get_streams().await {
-                                        let _ = tx_cmd_resp.send(AppEvent::UpdateAudio(sinks, sources, streams)).await;
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::UpdateAudio(sinks, sources, streams))
+                                            .await;
                                     }
                                 }
                             }
