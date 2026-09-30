@@ -2,65 +2,88 @@
 
 A production-grade universal Linux Settings Center for the terminal.
 
-## What it is
+## Overview
 
-`settings-tui` is a modern, keyboard-first, native settings application that brings the functionality of tools like GNOME Settings or KDE System Settings straight to your terminal. 
+`settings-tui` is a keyboard-driven, native settings application that brings the functionality of tools like GNOME Settings or KDE System Settings straight to your terminal. It communicates directly with native Linux subsystems via D-Bus, systemd, NetworkManager, BlueZ, WirePlumber/PipeWire, and compositor protocols, without requiring heavy desktop environments.
 
-## Why it exists
+It runs natively on standalone Wayland compositors (Hyprland, Sway), X11 window managers (i3, bspwm), or headless remote systems over SSH.
 
-Many terminal tools offer monitoring (like `btop`), but full graphical configuration managers are tightly coupled to their desktop environments (GNOME, KDE). `settings-tui` aims to provide a unified configuration interface using native Linux APIs, D-Bus, and standard configuration files, capable of running perfectly on lightweight Window Managers (Hyprland, Sway), over SSH, or natively within any terminal environment.
+## Capabilities & Subsystems
 
-## Supported Environments
+| Subsystem | Backend | Capabilities |
+| --- | --- | --- |
+| **Network** | NetworkManager (D-Bus / `nmcli`) | Wi-Fi device scanning, signal strength monitoring, network connection / disconnection |
+| **Bluetooth** | BlueZ (D-Bus `org.bluez`) | Adapter power toggling, paired device discovery, connect / disconnect, device removal / forget |
+| **Sound** | PipeWire & WirePlumber (`wpctl`) | Sink, source, and stream volume adjustment, mute toggling, default output device switching |
+| **Power** | UPower (D-Bus) & logind | Battery status, charge state, performance / balanced / power-saver profile cycling |
+| **Display** | Hyprland IPC (`hyprctl`) | Multi-monitor detection, resolution and refresh rate switching with scale preservation |
+| **Appearance** | GNOME Desktop Interface (`gsettings`) | Dark mode and light mode color-scheme toggle, font and theme reporting |
+| **Applications** | XDG Desktop Entry Spec | User and system `.desktop` application discovery, category filtering, background launching |
+| **Services** | systemd (D-Bus `systemd1`) | System service unit enumeration, active/substate inspection, unit start and stop |
+| **System** | sysinfo & logind (`login1`) | Kernel, OS distro, uptime, memory utilization, authorized power transitions |
 
-- **Distribution**: Agnostic (tested on Arch Linux, adaptable to others)
-- **Session**: Wayland & X11
-- **Init**: systemd
-- **Audio**: PipeWire/WirePlumber
-- **Network**: NetworkManager (via D-Bus)
-
-*Capability detection is built-in; missing dependencies gracefully degrade.*
+*All capabilities are dynamically discovered at runtime with honest, granular capability semantics.*
 
 ## Installation
 
+### From Source
+```bash
+cargo build --release
+sudo make install
+```
+
+### Via Cargo
 ```bash
 cargo install --path .
 ```
-Or build from source:
+
+### Arch Linux (PKGBUILD)
 ```bash
-git clone ...
-cd settings-tui
-cargo build --release
+cd extra && makepkg -si
 ```
 
-## Keyboard Controls
+## CLI Usage
 
-| Key | Action |
-| --- | --- |
-| `↑` / `k` | Navigate Up |
-| `↓` / `j` | Navigate Down |
-| `Enter` | Select / Toggle |
-| `Esc` / `q` | Back / Quit |
-| `/` | Search |
-| `Tab` | Next Control |
+```
+settings-tui [OPTIONS]
 
-## Architecture
+Options:
+  -c, --config <FILE>    Custom path to configuration file [default: ~/.config/settings-tui/config.json]
+  -s, --section <NAME>   Jump directly to category (e.g. Network, Bluetooth, Sound, Power, Display, Services, System)
+  -q, --search <QUERY>   Launch directly in search mode with initial query
+  -d, --diagnose         Output the Linux compatibility & capability matrix and exit
+  -h, --help             Print help information
+  -V, --version          Print version information
+```
 
-`settings-tui` uses a strict layered architecture:
+### Capability Matrix Diagnostic
+Run `settings-tui --diagnose` to inspect the authoritative capability status on your host system:
+```bash
+settings-tui --diagnose
+```
 
-1. **TUI**: Pure Ratatui-based rendering. No domain logic.
-2. **Settings Domain**: Transactions, capabilities, and history.
-3. **Backend Interfaces**: Traits abstracting system functions (`NetworkBackend`, `SystemBackend`, etc.).
-4. **Linux Adapters**: Concrete implementations (e.g., `NetworkManagerBackend`, `PipeWireBackend`).
+## Keyboard Navigation
 
-## Backends Support (WIP)
+| Key | Context | Action |
+| --- | --- | --- |
+| `↑` / `k` | Any | Move up |
+| `↓` / `j` | Any | Move down |
+| `←` / `h` / `Esc` | Content | Return focus to category sidebar |
+| `→` / `l` / `Enter` | Sidebar | Move focus into active category settings |
+| `Enter` | Content | Activate setting / toggle / confirm power action |
+| `<` / `>` or `h` / `l` | Content | Adjust slider value (volume) or cycle mode / profile |
+| `Backspace` / `Del` | Content | Forget device (e.g. remove paired Bluetooth peripheral) |
+| `/` | Any | Open global settings search |
+| `Esc` | Search / Modal | Cancel search or dismiss modal |
+| `q` | Top-level | Clean exit (terminal restored) |
 
-- **Network**: Mock implementation (NetworkManager planned)
-- **System**: Real backend using `sysinfo`
-- **Bluetooth**: BlueZ D-Bus planned
-- **Power**: UPower planned
+## Security & Reliability Architecture
 
-## Limitations
+1. **Transactional Mutations**: Every mutable setting executes with optimistic or verified transaction semantics (`execute_transaction!`). The engine waits for canonical OS state changes, checks read-back values, and reports exact OS error reasons if an action fails.
+2. **Crash-Safe Atomic Configuration**: Configuration persistence writes to a unique temporary file with strict `0o600` permissions, flushes buffers with `fsync`, creates `.bak` backups of previous state, preserves dotfile symlinks, and performs atomic renames.
+3. **Privilege & Input Validation**: Service names are sanitized to prevent shell injection or traversal. Power state transitions (`poweroff`, `reboot`, `suspend`, `hibernate`) are whitelisted, pre-checked against logind policies, and require explicit confirmation dialogs.
+4. **Viewport & Bounds Protection**: All navigation selections are dynamically clamped on every render loop, eliminating out-of-bounds panics when asynchronous background events shrink lists. Terminal viewports < 45×10 display responsive layout warnings.
 
-- Does not perform destructive disk operations
-- Requires correct privileges for system-wide configuration
-- Hyprland/Wayland specific settings are currently stubbed
+## License
+
+Licensed under either the MIT or Apache-2.0 license at your option.

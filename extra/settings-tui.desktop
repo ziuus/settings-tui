@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Settings (TUI)
+GenericName=Settings Center
+Comment=Production-grade universal Linux Settings Center for the terminal
+Exec=settings-tui
+Terminal=true
+Type=Application
+Icon=preferences-system
+Categories=Settings;System;
+Keywords=settings;configuration;system;tui;terminal;network;bluetooth;audio;display;power;
+StartupNotify=false

@@ -1,0 +1,53 @@
+.TH SETTINGS-TUI 1 "March 2026" "settings-tui 0.1.0" "User Commands"
+.SH NAME
+settings-tui \- universal Linux Settings Center for the terminal
+.SH SYNOPSIS
+.B settings-tui
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+\fBsettings-tui\fR is a production-grade, keyboard-first, native Linux settings application that brings the functionality of graphical control centers straight to your terminal. It communicates directly with native Linux subsystems via D-Bus, systemd, NetworkManager, BlueZ, WirePlumber/PipeWire, and compositor protocols.
+.SH OPTIONS
+.TP
+\fB\-c\fR, \fB\-\-config\fR \fIPATH\fR
+Path to an optional custom configuration file.
+.TP
+\fB\-s\fR, \fB\-\-section\fR \fINAME\fR
+Jump directly to a specific settings section on startup (e.g., \fINetwork\fR, \fIBluetooth\fR, \fISound\fR, \fIPower\fR, \fIDisplay\fR, \fIServices\fR, \fISystem\fR).
+.TP
+\fB\-q\fR, \fB\-\-search\fR \fIQUERY\fR
+Start directly in search mode initialized with the provided query string.
+.TP
+\fB\-d\fR, \fB\-\-diagnose\fR
+Inspect and display the authoritative Linux platform capability and compatibility matrix, then exit cleanly.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help information and exit.
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version information and exit.
+.SH KEYBOARD NAVIGATION
+.TP
+.B ↑ / k, ↓ / j
+Navigate through categories (when sidebar focused) or settings items (when content focused).
+.TP
+.B ← / h / Esc
+Switch focus from content area to sidebar navigation, or cancel active search / dialog.
+.TP
+.B → / l / Enter
+Switch focus from sidebar to content area, or activate / toggle selected setting.
+.TP
+.B /
+Open global semantic search across all Linux settings categories.
+.TP
+.B < / > or h / l
+Adjust sliders or cycle values (volume, brightness, power profiles, display modes).
+.TP
+.B Backspace / Delete
+Forget selected device (e.g. saved Bluetooth peripheral).
+.TP
+.B q
+Quit application cleanly, restoring terminal screen buffer and raw mode.
+.SH SECURITY
+All configuration updates are performed using atomic file writes with strict 0o600 permissions, symlink preservation, and automatic backup generation. Service unit state mutations and privileged power actions validate inputs and require Polkit authentication.
+.SH AUTHORS
+Written and maintained by the settings-tui project contributors.
