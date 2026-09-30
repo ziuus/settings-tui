@@ -23,8 +23,36 @@ impl PowerBackend for UPowerBackend {
 
         let mut battery_percentage = 100.0;
         let mut battery_state = BatteryState::Unknown;
+        let mut energy_wh = None;
+        let mut energy_full_wh = None;
+        let mut energy_full_design_wh = None;
+        let mut energy_rate_w = None;
+        let mut health_percentage = None;
+        let mut charge_cycles = None;
+        let mut voltage_v = None;
+        let mut time_to_empty_secs = None;
+        let mut time_to_full_secs = None;
+        let mut battery_model = None;
+        let mut battery_vendor = None;
 
-        if let Ok(device) = UPowerDeviceProxy::new(&self.connection).await {
+        let battery_device_path = match upower.enumerate_devices().await {
+            Ok(devices) => devices
+                .into_iter()
+                .find(|d| d.as_str().contains("/battery_")),
+            Err(_) => None,
+        };
+
+        let device_res = if let Some(path) = battery_device_path {
+            UPowerDeviceProxy::builder(&self.connection)
+                .path(path)
+                .map(|b| b.build())?
+                .await
+                .ok()
+        } else {
+            UPowerDeviceProxy::new(&self.connection).await.ok()
+        };
+
+        if let Some(device) = device_res {
             battery_percentage = device.percentage().await.unwrap_or(100.0);
 
             let state_val = device.state().await.unwrap_or(0);
@@ -37,6 +65,18 @@ impl PowerBackend for UPowerBackend {
                 6 => BatteryState::PendingDischarge,
                 _ => BatteryState::Unknown,
             };
+
+            energy_wh = device.energy().await.ok().filter(|v| *v > 0.0);
+            energy_full_wh = device.energy_full().await.ok().filter(|v| *v > 0.0);
+            energy_full_design_wh = device.energy_full_design().await.ok().filter(|v| *v > 0.0);
+            energy_rate_w = device.energy_rate().await.ok().filter(|v| *v > 0.0);
+            health_percentage = device.capacity().await.ok().filter(|v| *v > 0.0);
+            charge_cycles = device.charge_cycles().await.ok().filter(|v| *v >= 0);
+            voltage_v = device.voltage().await.ok().filter(|v| *v > 0.0);
+            time_to_empty_secs = device.time_to_empty().await.ok().filter(|v| *v > 0);
+            time_to_full_secs = device.time_to_full().await.ok().filter(|v| *v > 0);
+            battery_model = device.model().await.ok().filter(|s| !s.is_empty());
+            battery_vendor = device.vendor().await.ok().filter(|s| !s.is_empty());
         }
 
         let mut power_profile = None;
@@ -51,6 +91,17 @@ impl PowerBackend for UPowerBackend {
             battery_percentage,
             battery_state,
             power_profile,
+            energy_wh,
+            energy_full_wh,
+            energy_full_design_wh,
+            energy_rate_w,
+            health_percentage,
+            charge_cycles,
+            voltage_v,
+            time_to_empty_secs,
+            time_to_full_secs,
+            battery_model,
+            battery_vendor,
         })
     }
 

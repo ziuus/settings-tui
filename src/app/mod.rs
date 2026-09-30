@@ -80,6 +80,7 @@ pub enum BackendCommand {
     SetDisplayResolution(String, i32, i32, f64),
     SetDisplayBrightness(u32),
     ConnectNetwork(crate::backends::NetworkId, bool),
+    ForgetNetwork(crate::backends::NetworkId),
     SetAudioDefault(u32),
     RemoveBluetoothDevice(crate::backends::BluetoothDeviceId),
     LaunchApplication(String),
@@ -951,6 +952,15 @@ impl App {
                                 format!("Forget Bluetooth device '{}'?", dev.name),
                                 BackendCommand::RemoveBluetoothDevice(dev.id.clone()),
                             ));
+                        } else if cat == "Network"
+                            && self.selected_item > 0
+                            && self.selected_item <= self.networks.len()
+                        {
+                            let net = &self.networks[self.selected_item - 1];
+                            self.confirm_action = Some((
+                                format!("Forget Wi-Fi network profile '{}'?", net.name),
+                                BackendCommand::ForgetNetwork(net.id.clone()),
+                            ));
                         }
                     }
                 }
@@ -1557,6 +1567,35 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                     }
                                 } else {
                                     let err_msg = mutation_error.unwrap_or_else(|| format!("Failed to {} network.", if connect { "connect" } else { "disconnect" }));
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+
+                                if let Ok(networks) = final_state {
+                                    if let Ok(enabled) = net.wifi_enabled().await {
+                                        let _ = tx_cmd_resp.send(AppEvent::UpdateNetworks(enabled, networks)).await;
+                                    }
+                                }
+                            }
+                        }
+                        BackendCommand::ForgetNetwork(id) => {
+                            if let Some(net) = &network_backend_for_cmd {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    net.forget_network(&id),
+                                    net.networks(),
+                                    |networks: &Vec<crate::backends::Network>| {
+                                        !networks.iter().any(|n| n.id == id && n.saved)
+                                    },
+                                    10, 100
+                                );
+
+                                if mutation_ok {
+                                    if verified {
+                                        let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Wi-Fi profile '{}' forgotten.", id.0))).await;
+                                    } else {
+                                        let _ = tx_cmd_resp.send(AppEvent::Notification("Wi-Fi profile deleted, verification pending.".to_string())).await;
+                                    }
+                                } else {
+                                    let err_msg = mutation_error.unwrap_or_else(|| "Failed to delete Wi-Fi profile.".to_string());
                                     let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                                 }
 
@@ -2327,5 +2366,109 @@ mod tests {
         assert!(!app.search_results.is_empty());
         assert_eq!(app.search_results[0].title, "Network Time (NTP)");
         assert_eq!(app.search_results[0].category, "System");
+    }
+
+    #[test]
+    fn test_network_forget_key_confirmation() {
+        let mut app = App::new();
+        let net_idx = app.categories.iter().position(|c| c == "Network").unwrap();
+        app.selected_category = net_idx;
+        app.focus = Focus::Content;
+
+        app.networks.push(crate::backends::Network {
+            id: crate::backends::NetworkId("OfficeWiFi".to_string()),
+            name: "OfficeWiFi".to_string(),
+            connected: true,
+            strength: 85,
+            saved: true,
+            security: "WPA2/WPA3".to_string(),
+            frequency_mhz: 5240,
+        });
+
+        // selected_item = 1 corresponds to first network (item 0 is Wi-Fi Radio)
+        app.selected_item = 1;
+
+        // Press Backspace or Delete
+        app.handle_key(press(KeyCode::Delete));
+
+        assert!(
+            app.confirm_action.is_some(),
+            "Delete key on saved network should trigger confirmation modal"
+        );
+
+        let (prompt, cmd) = app.confirm_action.unwrap();
+        assert!(prompt.contains("OfficeWiFi"));
+        if let BackendCommand::ForgetNetwork(id) = cmd {
+            assert_eq!(id.0, "OfficeWiFi");
+        } else {
+            panic!("Expected BackendCommand::ForgetNetwork");
+        }
+    }
+
+    #[test]
+    fn test_power_battery_telemetry_rendering() {
+        let mut app = App::new();
+        app.power_info = Some(crate::backends::PowerInfo {
+            on_battery: true,
+            battery_percentage: 75.0,
+            battery_state: crate::backends::BatteryState::Discharging,
+            power_profile: Some("balanced".to_string()),
+            energy_wh: Some(41.2),
+            energy_full_wh: Some(55.0),
+            energy_full_design_wh: Some(70.0),
+            energy_rate_w: Some(6.25),
+            health_percentage: Some(78.5),
+            charge_cycles: Some(420),
+            voltage_v: Some(15.4),
+            time_to_empty_secs: Some(7200),
+            time_to_full_secs: None,
+            battery_model: Some("L18M4PF5".to_string()),
+            battery_vendor: Some("SMP".to_string()),
+        });
+
+        let lines = crate::ui::pages::power::render(&app, true);
+        let rendered: String = lines.into_iter().map(|l| format!("{:?}", l)).collect();
+
+        assert!(rendered.contains("Battery Level"));
+        assert!(rendered.contains("75.0%"));
+        assert!(rendered.contains("Discharging"));
+        assert!(rendered.contains("2h 0m remaining"));
+        assert!(rendered.contains("6.25 W"));
+        assert!(rendered.contains("78.5%"));
+        assert!(rendered.contains("420 cycles"));
+        assert!(rendered.contains("15.40 V"));
+        assert!(rendered.contains("SMP L18M4PF5"));
+    }
+
+    #[test]
+    fn test_network_dns_and_security_rendering() {
+        let mut app = App::new();
+        app.active_connection = Some(crate::backends::ActiveConnectionInfo {
+            interface: "wlan0".to_string(),
+            ip_address: "192.168.1.50".to_string(),
+            gateway: "192.168.1.1".to_string(),
+            dns_servers: vec!["1.1.1.1".to_string(), "8.8.8.8".to_string()],
+        });
+
+        app.networks.push(crate::backends::Network {
+            id: crate::backends::NetworkId("Home-5G".to_string()),
+            name: "Home-5G".to_string(),
+            connected: true,
+            strength: 92,
+            saved: true,
+            security: "WPA2/WPA3".to_string(),
+            frequency_mhz: 5180,
+        });
+
+        let lines = crate::ui::pages::network::render(&app, true);
+        let rendered: String = lines.into_iter().map(|l| format!("{:?}", l)).collect();
+
+        assert!(rendered.contains("wlan0"));
+        assert!(rendered.contains("192.168.1.50"));
+        assert!(rendered.contains("1.1.1.1, 8.8.8.8"));
+        assert!(rendered.contains("Home-5G"));
+        assert!(rendered.contains("5 GHz"));
+        assert!(rendered.contains("WPA2/WPA3"));
+        assert!(rendered.contains("Disconnect [Del: Forget]"));
     }
 }

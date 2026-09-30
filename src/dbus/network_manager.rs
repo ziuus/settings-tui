@@ -52,4 +52,16 @@ pub trait AccessPoint {
 
     #[zbus(property)]
     fn strength(&self) -> zbus::Result<u8>;
+
+    #[zbus(property)]
+    fn flags(&self) -> zbus::Result<u32>;
+
+    #[zbus(property)]
+    fn wpa_flags(&self) -> zbus::Result<u32>;
+
+    #[zbus(property)]
+    fn rsn_flags(&self) -> zbus::Result<u32>;
+
+    #[zbus(property)]
+    fn frequency(&self) -> zbus::Result<u32>;
 }

@@ -55,6 +55,7 @@ pub struct ActiveConnectionInfo {
     pub interface: String,
     pub ip_address: String,
     pub gateway: String,
+    pub dns_servers: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +64,9 @@ pub struct Network {
     pub name: String,
     pub connected: bool,
     pub strength: u8, // 0-100
+    pub saved: bool,
+    pub security: String,
+    pub frequency_mhz: u32,
 }
 
 #[async_trait]
@@ -73,6 +77,7 @@ pub trait NetworkBackend: Send + Sync {
     async fn get_active_connection(&self) -> Result<Option<ActiveConnectionInfo>>;
     async fn connect(&self, network: &NetworkId) -> Result<()>;
     async fn disconnect(&self, network: &NetworkId) -> Result<()>;
+    async fn forget_network(&self, network: &NetworkId) -> Result<()>;
 }
 
 // System Backend
@@ -165,6 +170,17 @@ pub struct PowerInfo {
     pub battery_percentage: f64,
     pub battery_state: BatteryState,
     pub power_profile: Option<String>,
+    pub energy_wh: Option<f64>,
+    pub energy_full_wh: Option<f64>,
+    pub energy_full_design_wh: Option<f64>,
+    pub energy_rate_w: Option<f64>,
+    pub health_percentage: Option<f64>,
+    pub charge_cycles: Option<i32>,
+    pub voltage_v: Option<f64>,
+    pub time_to_empty_secs: Option<i64>,
+    pub time_to_full_secs: Option<i64>,
+    pub battery_model: Option<String>,
+    pub battery_vendor: Option<String>,
 }
 
 #[async_trait]

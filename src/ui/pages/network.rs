@@ -17,7 +17,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
     ];
 
     if let Some(conn) = &app.active_connection {
-        text.push(Line::from(vec![
+        let mut conn_spans = vec![
             Span::styled("  Interface:  ", Style::default().fg(Color::Cyan)),
             Span::styled(
                 &conn.interface,
@@ -29,7 +29,20 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             Span::styled(&conn.ip_address, Style::default().fg(Color::Green)),
             Span::styled("   •   Gateway: ", Style::default().fg(Color::DarkGray)),
             Span::styled(&conn.gateway, Style::default().fg(Color::Gray)),
-        ]));
+        ];
+
+        if !conn.dns_servers.is_empty() {
+            conn_spans.push(Span::styled(
+                "   •   DNS: ",
+                Style::default().fg(Color::DarkGray),
+            ));
+            conn_spans.push(Span::styled(
+                conn.dns_servers.join(", "),
+                Style::default().fg(Color::Yellow),
+            ));
+        }
+
+        text.push(Line::from(conn_spans));
         text.push(Line::from(""));
     }
 
@@ -65,26 +78,54 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             let net = &app.networks[i];
             let is_net_selected = content_active && app.selected_item == i + 1;
 
-            let status_text = if net.connected {
-                "Connected"
+            let band_str = if net.frequency_mhz >= 4900 {
+                "5 GHz"
+            } else if net.frequency_mhz >= 2400 {
+                "2.4 GHz"
             } else {
-                "Available"
-            };
-            let action_text = if net.connected {
-                "Disconnect"
-            } else {
-                "Connect"
+                ""
             };
 
-            let control = widgets::value_selector(action_text, is_net_selected);
+            let mut status_desc = String::new();
+            if net.connected {
+                status_desc.push_str("Connected");
+            } else if net.saved {
+                status_desc.push_str("Saved");
+            } else {
+                status_desc.push_str("In Range");
+            }
+
+            if !band_str.is_empty() {
+                status_desc.push_str(&format!(" • {}", band_str));
+            }
+            if !net.security.is_empty() {
+                status_desc.push_str(&format!(" • {}", net.security));
+            }
+
+            let action_text = if net.connected {
+                "Disconnect [Del: Forget]".to_string()
+            } else if net.saved {
+                "Connect [Del: Forget]".to_string()
+            } else {
+                "Connect".to_string()
+            };
+
+            let control = widgets::value_selector(&action_text, is_net_selected);
             let net_lines =
-                widgets::setting_row(&net.name, status_text, control, is_net_selected, 60);
+                widgets::setting_row(&net.name, &status_desc, control, is_net_selected, 60);
             text.extend(net_lines);
+
+            let bars = match net.strength {
+                0..=24 => "[█░░░]",
+                25..=49 => "[██░░]",
+                50..=74 => "[███░]",
+                _ => "[████]",
+            };
 
             let strength_lines = widgets::setting_row(
                 "Signal Strength",
                 "Wi-Fi signal quality percentage",
-                widgets::value_read_only(&format!("{}%", net.strength), false),
+                widgets::value_read_only(&format!("{} {}%", bars, net.strength), false),
                 false,
                 60,
             );
