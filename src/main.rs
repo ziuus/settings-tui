@@ -75,6 +75,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .output()
                 .is_ok(),
             std::path::Path::new("/run/systemd/system").exists(),
+            std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok()
+                || std::process::Command::new("gsettings")
+                    .arg("help")
+                    .output()
+                    .is_ok(),
         );
 
         println!("  Desktop:       {}", caps.env.desktop);
@@ -101,6 +106,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("  Sound:         {}", caps.sound.status_text());
         println!("  Display:       {}", caps.display.status_text());
         println!("  Appearance:    {}", caps.appearance.status_text());
+        println!("  Mouse/Touchpad: {}", caps.input.status_text());
         println!("  Services:      {}", caps.services.status_text());
         println!("  System:        {}", caps.system.status_text());
         return Ok(());

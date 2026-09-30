@@ -6,6 +6,7 @@ pub mod applications;
 pub mod audio;
 pub mod bluetooth;
 pub mod display;
+pub mod input;
 pub mod network;
 pub mod power;
 pub mod system;
@@ -277,4 +278,22 @@ pub trait ApplicationsBackend: Send + Sync {
     async fn get_applications(&self) -> Result<Vec<AppEntry>>;
     async fn launch_application(&self, exec: &str) -> Result<()>;
     async fn get_default_apps(&self) -> Result<DefaultAppsInfo>;
+}
+
+// Core definitions for Input (Mouse & Touchpad)
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct InputSettings {
+    pub natural_scroll: bool,
+    pub tap_to_click: bool,
+    pub left_handed: bool,
+    pub sensitivity: f64, // -1.0 to 1.0
+}
+
+#[async_trait]
+pub trait InputBackend: Send + Sync {
+    async fn get_settings(&self) -> Result<InputSettings>;
+    async fn set_natural_scroll(&self, enabled: bool) -> Result<()>;
+    async fn set_tap_to_click(&self, enabled: bool) -> Result<()>;
+    async fn set_left_handed(&self, enabled: bool) -> Result<()>;
+    async fn set_sensitivity(&self, sensitivity: f64) -> Result<()>;
 }

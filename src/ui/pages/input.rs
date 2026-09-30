@@ -1,0 +1,137 @@
+use crate::app::App;
+use crate::ui::widgets;
+use ratatui::{
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+};
+
+pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
+    if let Some(info) = &app.input_settings {
+        let mut lines = vec![
+            Line::from(Span::styled(
+                "Mouse & Touchpad",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+        ];
+
+        // 0: Natural Scrolling
+        let is_sel_0 = content_active && app.selected_item == 0;
+        let bg_0 = if is_sel_0 {
+            Style::default().bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+        let mut nat_line = vec![
+            Span::styled(
+                if is_sel_0 { " > " } else { "   " },
+                bg_0.fg(Color::LightCyan),
+            ),
+            Span::styled(
+                format!("{:<20}", "Natural Scrolling"),
+                bg_0.fg(Color::White),
+            ),
+            Span::styled(" ", bg_0),
+        ];
+        nat_line.extend(widgets::toggle(info.natural_scroll, is_sel_0));
+        nat_line.push(Span::styled(
+            "  (Reverse scroll direction)",
+            bg_0.fg(Color::DarkGray),
+        ));
+        lines.push(Line::from(nat_line));
+
+        // 1: Tap to Click
+        let is_sel_1 = content_active && app.selected_item == 1;
+        let bg_1 = if is_sel_1 {
+            Style::default().bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+        let mut tap_line = vec![
+            Span::styled(
+                if is_sel_1 { " > " } else { "   " },
+                bg_1.fg(Color::LightCyan),
+            ),
+            Span::styled(format!("{:<20}", "Tap to Click"), bg_1.fg(Color::White)),
+            Span::styled(" ", bg_1),
+        ];
+        tap_line.extend(widgets::toggle(info.tap_to_click, is_sel_1));
+        tap_line.push(Span::styled(
+            "  (Tap touchpad for primary click)",
+            bg_1.fg(Color::DarkGray),
+        ));
+        lines.push(Line::from(tap_line));
+
+        // 2: Left Handed
+        let is_sel_2 = content_active && app.selected_item == 2;
+        let bg_2 = if is_sel_2 {
+            Style::default().bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+        let mut left_line = vec![
+            Span::styled(
+                if is_sel_2 { " > " } else { "   " },
+                bg_2.fg(Color::LightCyan),
+            ),
+            Span::styled(format!("{:<20}", "Left-Handed Mode"), bg_2.fg(Color::White)),
+            Span::styled(" ", bg_2),
+        ];
+        left_line.extend(widgets::toggle(info.left_handed, is_sel_2));
+        left_line.push(Span::styled(
+            "  (Swap left and right mouse buttons)",
+            bg_2.fg(Color::DarkGray),
+        ));
+        lines.push(Line::from(left_line));
+
+        // 3: Pointer Speed / Sensitivity (-1.0 to 1.0)
+        let is_sel_3 = content_active && app.selected_item == 3;
+        let bg_3 = if is_sel_3 {
+            Style::default().bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+        // Normalize -1.0..1.0 to 0..100%
+        let norm_percent = ((info.sensitivity + 1.0) / 2.0).clamp(0.0, 1.0);
+        let slider_widget = widgets::slider(norm_percent, 20, is_sel_3);
+
+        let mut speed_line = vec![
+            Span::styled(
+                if is_sel_3 { " > " } else { "   " },
+                bg_3.fg(Color::LightCyan),
+            ),
+            Span::styled(format!("{:<20}", "Pointer Speed"), bg_3.fg(Color::White)),
+            Span::styled(" ", bg_3),
+        ];
+        speed_line.extend(slider_widget);
+        speed_line.push(Span::styled(
+            format!("  {:.2} [-1.0 .. 1.0]", info.sensitivity),
+            bg_3.fg(Color::DarkGray),
+        ));
+        lines.push(Line::from(speed_line));
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  [Enter/Space: Toggle | Left/Right: Adjust Speed]",
+            Style::default().fg(Color::DarkGray),
+        )));
+
+        lines
+    } else {
+        vec![
+            Line::from(Span::styled(
+                "Mouse & Touchpad",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Touchpad / Mouse settings not supported on this compositor.",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ]
+    }
+}

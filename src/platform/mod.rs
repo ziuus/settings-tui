@@ -94,11 +94,13 @@ pub struct PlatformCapabilities {
     pub display: CapabilityStatus,
     pub appearance: CapabilityStatus,
     pub applications: CapabilityStatus,
+    pub input: CapabilityStatus,
     pub services: CapabilityStatus,
     pub system: CapabilityStatus,
 }
 
 impl PlatformCapabilities {
+    #[allow(clippy::too_many_arguments)]
     pub fn detect(
         has_network_backend: bool,
         has_bluetooth_backend: bool,
@@ -107,6 +109,7 @@ impl PlatformCapabilities {
         has_display_backend: bool,
         has_appearance_backend: bool,
         has_services_backend: bool,
+        has_input_backend: bool,
     ) -> Self {
         let env = EnvironmentInfo::detect();
 
@@ -179,6 +182,14 @@ impl PlatformCapabilities {
 
         let applications = CapabilityStatus::Mutable;
 
+        let input = if has_input_backend {
+            CapabilityStatus::Mutable
+        } else {
+            CapabilityStatus::Unsupported(
+                "Touchpad/Mouse configuration requires Hyprland or GNOME/gsettings".into(),
+            )
+        };
+
         let services = if has_services_backend {
             CapabilityStatus::RequiresPermission(
                 "Service state mutations require Polkit elevation".into(),
@@ -212,6 +223,7 @@ impl PlatformCapabilities {
             display,
             appearance,
             applications,
+            input,
             services,
             system,
         }
@@ -226,6 +238,7 @@ impl PlatformCapabilities {
             "Display" => &self.display,
             "Appearance" => &self.appearance,
             "Applications" => &self.applications,
+            "Mouse & Touchpad" => &self.input,
             "Services" => &self.services,
             "System" => &self.system,
             _ => &CapabilityStatus::Mutable,
@@ -239,7 +252,7 @@ mod tests {
 
     #[test]
     fn test_platform_capabilities_all_supported() {
-        let caps = PlatformCapabilities::detect(true, true, true, true, true, true, true);
+        let caps = PlatformCapabilities::detect(true, true, true, true, true, true, true, true);
         assert!(caps.applications.is_available());
         assert!(caps.applications.is_mutable());
         assert_eq!(
@@ -247,11 +260,15 @@ mod tests {
             &CapabilityStatus::Mutable
         );
         assert_eq!(caps.applications.status_text(), "Mutable (Full)");
+        assert_eq!(
+            caps.for_category("Mouse & Touchpad"),
+            &CapabilityStatus::Mutable
+        );
     }
 
     #[test]
     fn test_platform_capabilities_missing_network_manager() {
-        let caps = PlatformCapabilities::detect(false, true, true, true, true, true, true);
+        let caps = PlatformCapabilities::detect(false, true, true, true, true, true, true, true);
         assert!(matches!(
             caps.for_category("Network"),
             CapabilityStatus::Partial(_) | CapabilityStatus::Unavailable(_)
@@ -260,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_platform_capabilities_missing_bluez() {
-        let caps = PlatformCapabilities::detect(true, false, true, true, true, true, true);
+        let caps = PlatformCapabilities::detect(true, false, true, true, true, true, true, true);
         assert_eq!(
             caps.for_category("Bluetooth"),
             &CapabilityStatus::Unavailable(
@@ -272,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_platform_capabilities_missing_display() {
-        let caps = PlatformCapabilities::detect(true, true, true, true, false, true, true);
+        let caps = PlatformCapabilities::detect(true, true, true, true, false, true, true, true);
         assert!(matches!(
             caps.display,
             CapabilityStatus::Unsupported(_) | CapabilityStatus::Unavailable(_)
@@ -281,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_platform_capabilities_missing_services() {
-        let caps = PlatformCapabilities::detect(true, true, true, true, true, true, false);
+        let caps = PlatformCapabilities::detect(true, true, true, true, true, true, false, true);
         assert!(matches!(
             caps.services,
             CapabilityStatus::Partial(_) | CapabilityStatus::Unavailable(_)
@@ -290,7 +307,7 @@ mod tests {
 
     #[test]
     fn test_services_and_system_require_permission() {
-        let caps = PlatformCapabilities::detect(true, true, true, true, true, true, true);
+        let caps = PlatformCapabilities::detect(true, true, true, true, true, true, true, true);
         assert!(matches!(
             caps.services,
             CapabilityStatus::RequiresPermission(_)

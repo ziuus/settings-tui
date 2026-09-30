@@ -11,8 +11,8 @@ use tokio::sync::{mpsc, Mutex};
 use crate::backends::{
     system::RealSystemBackend, AppEntry, AppearanceBackend, AppearanceInfo, ApplicationsBackend,
     AudioBackend, AudioDevice, BluetoothBackend, BluetoothDevice, DefaultAppsInfo, DisplayBackend,
-    Monitor, Network, NetworkBackend, PowerBackend, PowerInfo, ServiceInfo, ServicesBackend,
-    SystemBackend, SystemInfo,
+    InputSettings, Monitor, Network, NetworkBackend, PowerBackend, PowerInfo, ServiceInfo,
+    ServicesBackend, SystemBackend, SystemInfo,
 };
 use crate::ui;
 use crate::Args;
@@ -61,6 +61,7 @@ pub enum AppEvent {
     UpdateMonitors(Vec<Monitor>),
     UpdateAppearance(AppearanceInfo),
     UpdateApplications(Vec<AppEntry>, Option<DefaultAppsInfo>),
+    UpdateInputSettings(InputSettings),
     UpdateCapabilities(Box<crate::platform::PlatformCapabilities>),
     UpdateBrightness(Option<u32>),
     UpdateActiveConnection(Option<crate::backends::ActiveConnectionInfo>),
@@ -88,6 +89,10 @@ pub enum BackendCommand {
     LaunchApplication(String),
     SystemPowerAction(String),
     ToggleNTP(bool),
+    ToggleNaturalScroll(bool),
+    ToggleTapToClick(bool),
+    ToggleLeftHanded(bool),
+    SetPointerSensitivity(f64),
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -135,6 +140,7 @@ pub struct App {
     pub appearance_info: Option<crate::backends::AppearanceInfo>,
     pub applications: Vec<crate::backends::AppEntry>,
     pub default_apps: Option<DefaultAppsInfo>,
+    pub input_settings: Option<InputSettings>,
     pub cmd_tx: Option<mpsc::Sender<BackendCommand>>,
     pub notifications: Vec<String>,
     pub notification_timer: usize,
@@ -162,6 +168,7 @@ impl App {
                 "Display".to_string(),
                 "Appearance".to_string(),
                 "Applications".to_string(),
+                "Mouse & Touchpad".to_string(),
                 "Services".to_string(),
                 "System".to_string(),
             ],
@@ -171,7 +178,7 @@ impl App {
             confirm_action: None,
             password_modal: None,
             capabilities: crate::platform::PlatformCapabilities::detect(
-                true, true, true, true, true, true, true,
+                true, true, true, true, true, true, true, true,
             ),
             bluetooth_devices: vec![],
             bluetooth_powered: false,
@@ -186,6 +193,7 @@ impl App {
             appearance_info: None,
             applications: vec![],
             default_apps: None,
+            input_settings: None,
             cmd_tx: None,
             notifications: vec![],
             notification_timer: 0,
@@ -600,6 +608,77 @@ impl App {
             }
         }
 
+        // Search Mouse & Touchpad
+        if self.input_settings.is_some() {
+            let score_nat = calc_score(
+                "Natural Scrolling",
+                "Mouse & Touchpad",
+                "Reverse scroll direction",
+                "touchpad natural scrolling",
+                &q,
+            );
+            if score_nat > 0 {
+                self.search_results.push(SearchResult {
+                    title: "Natural Scrolling".to_string(),
+                    category: "Mouse & Touchpad".to_string(),
+                    description: "Reverse scroll direction".to_string(),
+                    target_item_idx: 0,
+                    score: score_nat,
+                });
+            }
+
+            let score_tap = calc_score(
+                "Tap to Click",
+                "Mouse & Touchpad",
+                "Tap touchpad for primary click",
+                "touchpad tap to click",
+                &q,
+            );
+            if score_tap > 0 {
+                self.search_results.push(SearchResult {
+                    title: "Tap to Click".to_string(),
+                    category: "Mouse & Touchpad".to_string(),
+                    description: "Tap touchpad for primary click".to_string(),
+                    target_item_idx: 1,
+                    score: score_tap,
+                });
+            }
+
+            let score_left = calc_score(
+                "Left-Handed Mouse",
+                "Mouse & Touchpad",
+                "Swap left and right mouse buttons",
+                "mouse left handed",
+                &q,
+            );
+            if score_left > 0 {
+                self.search_results.push(SearchResult {
+                    title: "Left-Handed Mode".to_string(),
+                    category: "Mouse & Touchpad".to_string(),
+                    description: "Swap mouse buttons".to_string(),
+                    target_item_idx: 2,
+                    score: score_left,
+                });
+            }
+
+            let score_speed = calc_score(
+                "Pointer Speed",
+                "Mouse & Touchpad",
+                "Pointer acceleration and sensitivity",
+                "mouse touchpad sensitivity speed",
+                &q,
+            );
+            if score_speed > 0 {
+                self.search_results.push(SearchResult {
+                    title: "Pointer Speed".to_string(),
+                    category: "Mouse & Touchpad".to_string(),
+                    description: "Pointer sensitivity".to_string(),
+                    target_item_idx: 3,
+                    score: score_speed,
+                });
+            }
+        }
+
         // Sort by score descending
         self.search_results
             .sort_by_key(|a| std::cmp::Reverse(a.score));
@@ -638,6 +717,7 @@ impl App {
                 "Services" => self.services.len(),
                 "Display" => self.monitors.len(),
                 "Applications" => self.applications.len(),
+                "Mouse & Touchpad" => 4,
                 "Appearance" => 1,
                 "System" => 4,
                 _ => 0,
@@ -764,6 +844,17 @@ impl App {
                                         tx.try_send(BackendCommand::SetDisplayBrightness(new_val));
                                 }
                             }
+                        } else if cat == "Mouse & Touchpad"
+                            && self.input_settings.is_some()
+                            && self.selected_item == 3
+                        {
+                            if let Some(cur) = &self.input_settings {
+                                let new_val = (cur.sensitivity + 0.05).min(1.0);
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ =
+                                        tx.try_send(BackendCommand::SetPointerSensitivity(new_val));
+                                }
+                            }
                         }
                     }
                 }
@@ -782,6 +873,19 @@ impl App {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ =
                                         tx.try_send(BackendCommand::SetDisplayBrightness(new_val));
+                                }
+                            }
+                            return;
+                        } else if (key.code == KeyCode::Left || key.code == KeyCode::Char('h'))
+                            && cat == "Mouse & Touchpad"
+                            && self.input_settings.is_some()
+                            && self.selected_item == 3
+                        {
+                            if let Some(cur) = &self.input_settings {
+                                let new_val = (cur.sensitivity - 0.05).max(-1.0);
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ =
+                                        tx.try_send(BackendCommand::SetPointerSensitivity(new_val));
                                 }
                             }
                             return;
@@ -965,6 +1069,30 @@ impl App {
                             if let Some(tx) = &self.cmd_tx {
                                 let _ = tx
                                     .try_send(BackendCommand::LaunchApplication(app.exec.clone()));
+                            }
+                        } else if cat == "Mouse & Touchpad" {
+                            if let Some(input) = &self.input_settings {
+                                if let Some(tx) = &self.cmd_tx {
+                                    match self.selected_item {
+                                        0 => {
+                                            let _ =
+                                                tx.try_send(BackendCommand::ToggleNaturalScroll(
+                                                    !input.natural_scroll,
+                                                ));
+                                        }
+                                        1 => {
+                                            let _ = tx.try_send(BackendCommand::ToggleTapToClick(
+                                                !input.tap_to_click,
+                                            ));
+                                        }
+                                        2 => {
+                                            let _ = tx.try_send(BackendCommand::ToggleLeftHanded(
+                                                !input.left_handed,
+                                            ));
+                                        }
+                                        _ => {}
+                                    }
+                                }
                             }
                         } else if cat == "System" {
                             if self.selected_item == 0 {
@@ -1263,6 +1391,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     let appearance_backend = crate::backends::appearance::GsettingsBackend::new();
     let apps_backend = crate::backends::applications::DesktopEntryBackend::new();
+    let input_backend = crate::backends::input::create_input_backend();
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<BackendCommand>(10);
     app.lock().await.cmd_tx = Some(cmd_tx);
@@ -1276,6 +1405,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         .await
         .ok();
     let sys_backend_for_cmd = crate::backends::system::RealSystemBackend::new().await;
+    let input_backend_for_cmd = crate::backends::input::create_input_backend();
     let display_backend_for_cmd: Option<Box<dyn DisplayBackend>> = {
         let is_hyprland = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok();
         let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
@@ -1300,6 +1430,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         display_backend.is_some(),
         appearance_backend.is_some(),
         services_backend.is_some(),
+        input_backend.is_some(),
     );
     let _ = tx_backend
         .send(AppEvent::UpdateCapabilities(Box::new(capabilities)))
@@ -1942,6 +2073,153 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                     tx_cmd_resp.send(AppEvent::UpdateSystemInfo(info)).await;
                             }
                         }
+                        BackendCommand::ToggleNaturalScroll(target) => {
+                            if let Some(inp) = &input_backend_for_cmd {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    inp.set_natural_scroll(target),
+                                    inp.get_settings(),
+                                    |settings: &InputSettings| settings.natural_scroll == target,
+                                    10,
+                                    50
+                                );
+                                if mutation_ok {
+                                    if verified {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(format!(
+                                                "Natural scrolling {}",
+                                                if target { "enabled" } else { "disabled" }
+                                            )))
+                                            .await;
+                                    } else {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(
+                                                "Natural scrolling change could not be verified."
+                                                    .to_string(),
+                                            ))
+                                            .await;
+                                    }
+                                } else {
+                                    let err_msg = mutation_error.unwrap_or_else(|| {
+                                        "Failed to toggle natural scrolling.".to_string()
+                                    });
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+
+                                if let Ok(settings) = final_state {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::UpdateInputSettings(settings))
+                                        .await;
+                                }
+                            }
+                        }
+                        BackendCommand::ToggleTapToClick(target) => {
+                            if let Some(inp) = &input_backend_for_cmd {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    inp.set_tap_to_click(target),
+                                    inp.get_settings(),
+                                    |settings: &InputSettings| settings.tap_to_click == target,
+                                    10,
+                                    50
+                                );
+                                if mutation_ok {
+                                    if verified {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(format!(
+                                                "Tap to click {}",
+                                                if target { "enabled" } else { "disabled" }
+                                            )))
+                                            .await;
+                                    } else {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(
+                                                "Tap to click change could not be verified."
+                                                    .to_string(),
+                                            ))
+                                            .await;
+                                    }
+                                } else {
+                                    let err_msg = mutation_error.unwrap_or_else(|| {
+                                        "Failed to toggle tap to click.".to_string()
+                                    });
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+
+                                if let Ok(settings) = final_state {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::UpdateInputSettings(settings))
+                                        .await;
+                                }
+                            }
+                        }
+                        BackendCommand::ToggleLeftHanded(target) => {
+                            if let Some(inp) = &input_backend_for_cmd {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    inp.set_left_handed(target),
+                                    inp.get_settings(),
+                                    |settings: &InputSettings| settings.left_handed == target,
+                                    10,
+                                    50
+                                );
+                                if mutation_ok {
+                                    if verified {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(format!(
+                                                "Left-handed mode {}",
+                                                if target { "enabled" } else { "disabled" }
+                                            )))
+                                            .await;
+                                    } else {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(
+                                                "Left-handed mode change could not be verified."
+                                                    .to_string(),
+                                            ))
+                                            .await;
+                                    }
+                                } else {
+                                    let err_msg = mutation_error.unwrap_or_else(|| {
+                                        "Failed to toggle left-handed mode.".to_string()
+                                    });
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+
+                                if let Ok(settings) = final_state {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::UpdateInputSettings(settings))
+                                        .await;
+                                }
+                            }
+                        }
+                        BackendCommand::SetPointerSensitivity(val) => {
+                            if let Some(inp) = &input_backend_for_cmd {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    inp.set_sensitivity(val),
+                                    inp.get_settings(),
+                                    |settings: &InputSettings| (settings.sensitivity - val).abs() < 0.06,
+                                    10,
+                                    50
+                                );
+                                if !mutation_ok {
+                                    let err_msg = mutation_error.unwrap_or_else(|| {
+                                        "Failed to set pointer speed.".to_string()
+                                    });
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                } else if !verified {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::Notification(
+                                            "Pointer speed change could not be verified."
+                                                .to_string(),
+                                        ))
+                                        .await;
+                                }
+
+                                if let Ok(settings) = final_state {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::UpdateInputSettings(settings))
+                                        .await;
+                                }
+                            }
+                        }
                     }
                 }
                 _ = tokio::time::sleep_until(last_poll + Duration::from_secs(5)) => {
@@ -1995,6 +2273,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         let defs = apps_backend.get_default_apps().await.ok();
                         let _ = tx_backend.send(AppEvent::UpdateApplications(apps, defs)).await;
                     }
+                    if let Some(inp) = &input_backend {
+                        if let Ok(settings) = inp.get_settings().await {
+                            let _ = tx_backend.send(AppEvent::UpdateInputSettings(settings)).await;
+                        }
+                    }
                 }
             }
         }
@@ -2044,6 +2327,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                     if defs.is_some() {
                         app_lock.default_apps = defs;
                     }
+                }
+                AppEvent::UpdateInputSettings(settings) => {
+                    app_lock.input_settings = Some(settings);
                 }
                 AppEvent::UpdateCapabilities(caps) => app_lock.capabilities = *caps,
                 AppEvent::Notification(msg) => {
@@ -2314,7 +2600,8 @@ mod tests {
         let vis = app.visible_categories();
         assert!(vis.contains(&"Network".to_string()));
         assert!(vis.contains(&"System".to_string()));
-        assert_eq!(vis.len(), 9, "Should have 9 categories");
+        assert!(vis.contains(&"Mouse & Touchpad".to_string()));
+        assert_eq!(vis.len(), 10, "Should have 10 categories");
     }
 
     #[test]
@@ -2794,5 +3081,111 @@ mod tests {
         } else {
             panic!("Expected SetAudioDefault with is_sink = false");
         }
+    }
+
+    #[test]
+    fn test_input_touchpad_toggles() {
+        let mut app = App::new();
+        let input_idx = app
+            .categories
+            .iter()
+            .position(|c| c == "Mouse & Touchpad")
+            .unwrap();
+        app.selected_category = input_idx;
+        app.focus = Focus::Content;
+
+        app.input_settings = Some(InputSettings {
+            natural_scroll: false,
+            tap_to_click: true,
+            left_handed: false,
+            sensitivity: 0.0,
+        });
+
+        let (tx, mut rx) = mpsc::channel(10);
+        app.cmd_tx = Some(tx);
+
+        // Item 0: Natural scroll toggle
+        app.selected_item = 0;
+        app.handle_key(press(KeyCode::Enter));
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(BackendCommand::ToggleNaturalScroll(true))
+        ));
+
+        // Item 1: Tap to click toggle
+        app.selected_item = 1;
+        app.handle_key(press(KeyCode::Char(' ')));
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(BackendCommand::ToggleTapToClick(false))
+        ));
+
+        // Item 2: Left handed toggle
+        app.selected_item = 2;
+        app.handle_key(press(KeyCode::Enter));
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(BackendCommand::ToggleLeftHanded(true))
+        ));
+    }
+
+    #[test]
+    fn test_input_sensitivity_adjustment() {
+        let mut app = App::new();
+        let input_idx = app
+            .categories
+            .iter()
+            .position(|c| c == "Mouse & Touchpad")
+            .unwrap();
+        app.selected_category = input_idx;
+        app.focus = Focus::Content;
+
+        app.input_settings = Some(InputSettings {
+            natural_scroll: false,
+            tap_to_click: false,
+            left_handed: false,
+            sensitivity: 0.2,
+        });
+
+        let (tx, mut rx) = mpsc::channel(10);
+        app.cmd_tx = Some(tx);
+
+        // Item 3: Pointer speed
+        app.selected_item = 3;
+
+        // Press Right arrow -> increase by 0.05
+        app.handle_key(press(KeyCode::Right));
+        if let Ok(BackendCommand::SetPointerSensitivity(val)) = rx.try_recv() {
+            assert!((val - 0.25).abs() < 1e-4);
+        } else {
+            panic!("Expected SetPointerSensitivity(0.25)");
+        }
+
+        // Press Left arrow -> decrease by 0.05
+        app.handle_key(press(KeyCode::Left));
+        if let Ok(BackendCommand::SetPointerSensitivity(val)) = rx.try_recv() {
+            assert!((val - 0.15).abs() < 1e-4);
+        } else {
+            panic!("Expected SetPointerSensitivity(0.15)");
+        }
+    }
+
+    #[test]
+    fn test_search_input_settings() {
+        let mut app = App::new();
+        app.input_settings = Some(InputSettings::default());
+
+        app.search_query = "touchpad".to_string();
+        app.update_search_results();
+
+        assert!(!app.search_results.is_empty());
+        let found = app
+            .search_results
+            .iter()
+            .any(|r| r.category == "Mouse & Touchpad");
+        assert!(
+            found,
+            "Search for 'touchpad' should yield Mouse & Touchpad settings"
+        );
     }
 }

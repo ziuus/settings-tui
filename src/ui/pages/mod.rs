@@ -2,6 +2,7 @@ pub mod appearance;
 pub mod applications;
 pub mod bluetooth;
 pub mod display;
+pub mod input;
 pub mod network;
 pub mod power;
 pub mod services;
