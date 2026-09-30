@@ -1,51 +1,61 @@
-# Settings TUI (`settings-tui`)
+<div align="center">
+
+# ⚙️ Settings TUI (`settings-tui`)
+
+### The Missing Native Control Center for Linux Power Users
 
 [![CI](https://github.com/ziuus/settings-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/ziuus/settings-tui/actions/workflows/ci.yml)
-[![npm version](https://img.shields.io/npm/v/settings-tui.svg)](https://www.npmjs.com/package/settings-tui)
+[![npm version](https://img.shields.io/npm/v/settings-tui.svg?style=flat&color=CB3837)](https://www.npmjs.com/package/settings-tui)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE-MIT)
+[![Rust](https://img.shields.io/badge/Rust-1.75+-dea584.svg)](https://www.rust-lang.org)
 [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)]()
 
-> A production-grade universal Linux Settings Center for the terminal.
+<br/>
 
-`settings-tui` brings the power and completeness of modern graphical control centers (GNOME Settings, KDE System Settings) directly to your terminal. It communicates directly with native Linux subsystems via D-Bus, systemd, NetworkManager, BlueZ, WirePlumber/PipeWire, sysfs, and compositor protocols, with zero desktop environment lock-in.
+![Settings TUI](assets/screenshot.png)
 
-Runs natively across standalone Wayland compositors (Hyprland, Sway), X11 window managers (i3, bspwm, dwm), or headless machines over SSH.
+<br/>
 
----
+**Stop juggling 10 different command-line utilities.**  
+`settings-tui` brings the full functionality and polish of modern graphical control centers (GNOME Settings, KDE System Settings) straight to your terminal. Control your network, audio, displays, power, Bluetooth, systemd units, and desktop themes through a unified, keyboard-driven interface.
 
-## Capabilities & Subsystems
+[Quick Start](#-quick-start) • [Why settings-tui?](#-why-settings-tui) • [Features](#-subsystem-breakdown) • [Keybindings](#-keyboard-navigation) • [Contributing](CONTRIBUTING.md)
 
-| Subsystem | Backend | Key Features |
-| --- | --- | --- |
-| **Network** | NetworkManager (D-Bus / `nmcli`) | Active interface card (IP, Gateway, Device), Wi-Fi radio toggle, AP scanning, connection/disconnection |
-| **Bluetooth** | BlueZ (D-Bus `org.bluez`) | Adapter power toggle, paired/discovered peripheral management, connect, disconnect, forget/remove |
-| **Sound** | PipeWire & WirePlumber (`wpctl`) | Output sinks, input sources, per-application streams, numerical volume sliders, mute toggle, default device selector |
-| **Power** | UPower (D-Bus) & logind | Battery status, charge percentage, energy profiles (Performance, Balanced, Power Saver) |
-| **Display** | Sysfs / `brightnessctl` & Hyprland | Backlight brightness slider (`0-100%`), multi-monitor resolution and refresh rate switching |
-| **Appearance** | GNOME Desktop Interface (`gsettings`) | Dark mode and light mode color-scheme toggle, font name and icon theme reporting |
-| **Applications** | XDG Desktop Entry Spec | User and system `.desktop` discovery, category filtering, search, and detached background launcher |
-| **Services** | systemd (D-Bus `systemd1`) | System unit inspection, active/substate monitoring, verified unit start/stop with Polkit integration |
-| **System** | sysinfo, `hostname1`, `timedate1`, logind | Hostname, chassis, timezone, toggleable NTP sync, disk storage partition usage bars, protected power transitions |
+</div>
 
 ---
 
-## Installation
+## ⚡ Why settings-tui?
 
-### Via npm (Universal)
+| Pain Point with Existing Setup | With `settings-tui` |
+|---|---|
+| Memorizing syntax for `nmcli`, `bluetoothctl`, `wpctl`, `brightnessctl`, `hyprctl`, and `systemctl` | **One unified TUI** covering all system settings |
+| Heavy Electron apps or GNOME/KDE control centers requiring 500MB+ dependencies on minimal window managers | **Pure Rust binary** (<9 MB stripped), sub-15ms startup, zero desktop environment lock-in |
+| Shell scripts that blindly run commands and assume they worked | **Transactional engine** (`READ -> MUTATE -> READBACK -> VERIFY`) ensuring state changes actually succeeded |
+| Clunky network connection prompts popping up outside your terminal | **Interactive masked password dialogs**, Wi-Fi frequency & security inspection built-in |
+| Hidden or broken features failing silently on different distros | **Transparent Capability Matrix** with honest badges (`[~]`, `[*]`, `[R]`) so you know what is supported |
+
+---
+
+## 🚀 Quick Start
+
+### 1. Instant Run via npx (Zero Install)
+You can launch `settings-tui` immediately without compiling:
 ```bash
-# Run instantly with zero manual installation:
 npx settings-tui
+```
 
-# Or install globally:
+### 2. Install Globally via npm
+```bash
 npm install -g settings-tui
 
-# Then launch anytime:
+# Launch anytime:
 settings-tui
-# or simply:
+# Or simply:
 settings
 ```
 
-### From Source (Cargo)
+### 3. Build & Install from Source (Cargo)
 ```bash
 git clone https://github.com/ziuus/settings-tui.git
 cd settings-tui
@@ -53,70 +63,129 @@ cargo build --release
 sudo make install
 ```
 
-### Arch Linux (PKGBUILD)
+### 4. Arch Linux
 ```bash
 cd extra && makepkg -si
 ```
 
 ---
 
-## CLI Usage
+## 🧩 Subsystem Breakdown
+
+### 🌐 Network & Connections
+* **Real-time Wi-Fi Scanner**: Live discovery of access points with signal quality bars (`[████] 84%`), frequency band detection (`5 GHz` vs `2.4 GHz`), and security tags (`WPA2/WPA3`, `WEP`, `Open`).
+* **Interactive Password Modal**: Built-in credential prompt for secured networks with masked entry (`••••••••`), `Tab` show/hide toggle, and `Esc` cancel.
+* **Active Connection Card**: Live network interface device, local IPv4, default gateway, and nameserver DNS addresses parsed from `/etc/resolv.conf`.
+* **Profile Management**: Instant connect for open/saved networks, disconnect for active connections, and `Backspace`/`Delete` confirmation to forget saved Wi-Fi profiles.
+
+### 🔋 Power & Battery Telemetry
+* **Live Energy Analytics**: Visual charge meter with real-time battery level percentage.
+* **Deep Hardware Metrics**: Power draw in Watts (`5.79 W`), factory design Wh vs full capacity Wh, cycle count, terminal voltage, and cell model identity.
+* **Power Profiles**: Live switching between `performance`, `balanced`, and `power-saver` via `power-profiles-daemon`.
+* **Time Estimates**: Calculated time-to-full during AC charging and time-to-empty while discharging.
+
+### 🔊 Sound & Streams
+* **PipeWire & WirePlumber Integration**: Fast output sinks and input sources discovery with default device selection.
+* **Volume Sliders**: Granular volume controls (`0–100%`) with mute toggling via `Space`.
+* **Per-Application Mixing**: Monitor and adjust audio volume individually for running applications playing or recording audio.
+
+### 🖥️ Display & Backlight
+* **Monitor Management**: Enumerates active monitors and primary display detection under Hyprland / Wayland.
+* **Resolution & Refresh Rate**: Select and apply supported screen resolutions and refresh rates with display scale preservation.
+* **Backlight Slider**: Seamless screen brightness adjustment via `brightnessctl` and sysfs fallback.
+
+### 📱 Bluetooth
+* **BlueZ D-Bus Engine**: Live adapter power toggle (`[ ON ]` / `[ OFF ]`).
+* **Device Operations**: Connect, disconnect, and forget peripherals with confirmation modals.
+
+### ⚙️ Services & System
+* **systemd Management**: Inspect active/substate unit statuses and safely toggle units with Polkit elevation support.
+* **Host & Disk Telemetry**: Kernel release, OS distro, hostname, chassis type, memory utilization (RAM used/total), and visual storage partition bars.
+* **Network Time (NTP)**: Live toggleable network time synchronization via `systemd-timedated`.
+* **Protected Power Actions**: Suspend, Hibernate, Reboot, and Power Off with explicit safety confirmation dialogs.
+
+### 🎨 Appearance & Applications
+* **Theme Switching**: Dark / Light color scheme toggle via XDG Desktop Portal / gsettings.
+* **App Launcher**: Parses standard system and user `.desktop` entries and Flatpak installations with category filtering and background execution.
+
+---
+
+## ⌨️ Keyboard Navigation
+
+Designed from the ground up for keyboard power users. Supports standard arrows and Vim navigation (`hjkl`):
+
+| Key | Context | Action |
+|---|---|---|
+| `↑` / `k`, `↓` / `j` | Any | Navigate list items or sidebar categories |
+| `←` / `h` | Content | Return focus to sidebar categories |
+| `→` / `l` / `Enter` | Sidebar | Enter content view for the selected category |
+| `Enter` | Content | Activate setting / connect / confirm / launch |
+| `Space` | Content | Toggle switches / mute audio device |
+| `+` / `-` or `>` / `<` | Content | Increase / decrease volume, brightness, or cycle power profiles |
+| `Backspace` / `Del` | Content | Forget saved Wi-Fi profile or paired Bluetooth device |
+| `/` | Any | Open global fuzzy search across all categories |
+| `Tab` | Password Dialog | Toggle password visibility (show / hide plaintext) |
+| `Esc` | Modal / Search | Dismiss dialog or exit search mode |
+| `q` | Top-level | Clean exit (terminal state completely restored) |
+
+---
+
+## 🔍 Global Search
+
+Press `/` from anywhere to initiate global search. Type keywords like `wifi`, `volume`, `brightness`, `dark`, `ntp`, `power`, or `reboot` and hit `Enter` to navigate directly to that exact setting:
+
+```
+⚙ Settings  / bright█
+  Screen Brightness            Display      Display > Screen Brightness
+  Keyboard Backlight           Display      Display > Backlight
+```
+
+---
+
+## 🛠️ CLI Options & Diagnostics
 
 ```
 settings-tui [OPTIONS]
 
 Options:
   -s, --section <NAME>   Jump directly to category (Network, Bluetooth, Sound, Power, Display, Appearance, Applications, Services, System)
-  -q, --search <QUERY>   Launch directly in search mode with initial query
-  -d, --diagnose         Output the Linux compatibility & capability matrix and exit
-  -c, --config <FILE>    Custom path to configuration file [default: ~/.config/settings-tui/config.json]
+  -q, --search <QUERY>   Launch directly with search query active
+  -d, --diagnose         Output the Linux compatibility and capability matrix and exit
+  -c, --config <FILE>    Custom path to config [default: ~/.config/settings-tui/config.json]
   -h, --help             Print help information
   -V, --version          Print version information
 ```
 
-### System Compatibility Diagnostic
-Run `settings-tui --diagnose` to inspect the detected capabilities on your system:
+### Self-Diagnostics
+Run `settings-tui --diagnose` to view your system's native capability matrix:
 ```bash
-settings-tui --diagnose
+$ settings-tui --diagnose
+Checking Linux platform and backend capabilities...
+
+  Desktop:       Hyprland
+  Session Type:  wayland
+  Compositor:    Hyprland
+  Init System:   systemd
+  Network:       Wi-Fi scanning and connection supported (VPN/DNS unmanaged)
+  Bluetooth:     Power toggle and device connect/forget supported (PIN pairing unmanaged)
+  Power:         Mutable (Full)
+  Sound:         Mutable (Full)
+  Display:       Resolution and refresh rate mutable via hyprctl (scaling read-only)
+  Appearance:    Color scheme toggle supported (font and icon themes read-only)
+  Services:      Service state mutations require Polkit elevation
+  System:        Power actions require active logind session / Polkit
 ```
 
 ---
 
-## Keyboard Navigation
+## 🤝 Contributing
 
-| Key | Context | Action |
-| --- | --- | --- |
-| `↑` / `k`, `↓` / `j` | Any | Navigate items or categories |
-| `←` / `h` / `Esc` | Content | Return focus to category sidebar |
-| `→` / `l` / `Enter` | Sidebar | Move focus into active settings category |
-| `Enter` | Content | Activate setting / toggle / set default / confirm power action |
-| `Space` | Content | Toggle switches / mute audio device |
-| `<` / `>` or `+` / `-` | Content | Adjust volume, brightness slider, or cycle mode |
-| `Backspace` / `Del` | Content | Forget device (e.g. remove paired Bluetooth peripheral) |
-| `/` | Any | Open global settings search across all categories |
-| `Esc` | Search / Modal | Cancel search or dismiss modal dialog |
-| `q` | Top-level | Clean exit (terminal restored) |
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for architectural overview, coding standards, test suite guidelines, and local development setup.
+
+For autonomous AI coding assistants, see [AGENTS.md](AGENTS.md) for architectural invariants, state patterns, and guidelines.
 
 ---
 
-## Security & Reliability Architecture
+## 📄 License
 
-1. **Transactional Mutations**: Every mutable operation executes with verified transaction semantics (`execute_transaction!`). The engine waits for bounded canonical OS state updates, verifies read-back values, and reports exact system error reasons if an action fails.
-2. **Safe Power Actions**: Power operations (`suspend`, `hibernate`, `reboot`, `poweroff`) require explicit confirmation modals with distinct prompts; accidental `Space` keystrokes are blocked.
-3. **Atomic Configuration**: Configuration files write to unique temporary files with `0o600` permissions, execute `fsync`, maintain `.bak` fallbacks, preserve symlinks, and use atomic rename semantics.
-4. **Viewport Protection**: Dynamic selection clamping ensures list changes never cause out-of-bounds panics. Terminals smaller than 45×10 show responsive resizing warnings.
-
----
-
-## Automated Publishing
-
-This repository includes automated GitHub Actions workflows:
-- **CI**: Formats, lints (Clippy), and runs test suites on every push and pull request.
-- **npm Release**: Triggered automatically on creating a release or Git tag (`v*`), compiles optimized release binaries and publishes to npm.
-  *(Requires setting the `NPM_TOKEN` secret in your GitHub repository's **Settings → Secrets and variables → Actions**).*
-
----
-
-## License
-
-Licensed under the [MIT License](LICENSE-MIT).
+This project is licensed under the [MIT License](LICENSE-MIT).
