@@ -42,17 +42,23 @@ impl AppearanceBackend for GsettingsBackend {
     }
 
     async fn set_color_scheme(&self, scheme: &str) -> Result<()> {
-        let status = Command::new("gsettings")
+        let output = Command::new("gsettings")
             .arg("set")
             .arg("org.gnome.desktop.interface")
             .arg("color-scheme")
             .arg(scheme)
-            .status()?;
+            .output()?;
 
-        if status.success() {
+        if output.status.success() {
             Ok(())
         } else {
-            Err(anyhow::anyhow!("gsettings set color-scheme failed"))
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let msg = stderr
+                .lines()
+                .next()
+                .unwrap_or("Failed to set color scheme")
+                .trim();
+            Err(anyhow::anyhow!("{}", msg))
         }
     }
 }

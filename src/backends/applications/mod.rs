@@ -1,18 +1,53 @@
 use super::{AppEntry, ApplicationsBackend};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
 pub struct DesktopEntryBackend;
+
+/// Tokenizes a desktop file Exec= line, preserving quoted arguments and stripping % field codes.
+pub fn parse_exec_args(exec: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut quote_char = ' ';
+
+    for ch in exec.chars() {
+        match ch {
+            '"' | '\'' if !in_quotes => {
+                in_quotes = true;
+                quote_char = ch;
+            }
+            c if in_quotes && c == quote_char => {
+                in_quotes = false;
+            }
+            ' ' | '\t' if !in_quotes => {
+                if !current.is_empty() {
+                    if !current.starts_with('%') {
+                        args.push(current);
+                    }
+                    current = String::new();
+                }
+            }
+            _ => {
+                current.push(ch);
+            }
+        }
+    }
+    if !current.is_empty() && !current.starts_with('%') {
+        args.push(current);
+    }
+    args
+}
 
 impl DesktopEntryBackend {
     pub fn new() -> Self {
         Self
     }
 
-    fn parse_desktop_file(path: &Path) -> Option<AppEntry> {
-        let content = fs::read_to_string(path).ok()?;
+    pub fn parse_desktop_content(content: &str, file_name: &str) -> Option<AppEntry> {
         let mut name = String::new();
         let mut description = String::new();
         let mut exec = String::new();
@@ -26,7 +61,7 @@ impl DesktopEntryBackend {
                 in_desktop_entry = true;
                 continue;
             } else if line.starts_with('[') {
-                in_desktop_entry = false; // another section like [Desktop Action ...]
+                in_desktop_entry = false;
             }
 
             if in_desktop_entry {
@@ -46,7 +81,7 @@ impl DesktopEntryBackend {
             return None;
         }
 
-        let id = path.file_name()?.to_string_lossy().to_string();
+        let id = file_name.to_string();
         let is_flatpak = exec.contains("flatpak run") || id.contains("org.");
 
         Some(AppEntry {
@@ -57,50 +92,73 @@ impl DesktopEntryBackend {
             is_flatpak,
         })
     }
+
+    fn parse_desktop_file(path: &Path) -> Option<AppEntry> {
+        let content = fs::read_to_string(path).ok()?;
+        let file_name = path.file_name()?.to_string_lossy().to_string();
+        Self::parse_desktop_content(&content, &file_name)
+    }
 }
 
 #[async_trait]
 impl ApplicationsBackend for DesktopEntryBackend {
     async fn get_applications(&self) -> Result<Vec<AppEntry>> {
         let mut apps = Vec::new();
+        let mut seen_ids = HashSet::new();
+        let mut check_dirs = Vec::new();
 
-        let mut check_dirs = vec!["/usr/share/applications".to_string()];
-        if let Ok(home) = std::env::var("HOME") {
+        // 1. User applications directory ($XDG_DATA_HOME/applications or ~/.local/share/applications)
+        if let Ok(data_home) = std::env::var("XDG_DATA_HOME") {
+            check_dirs.push(format!("{}/applications", data_home.trim_end_matches('/')));
+        } else if let Ok(home) = std::env::var("HOME") {
             check_dirs.push(format!("{}/.local/share/applications", home));
         }
 
+        // 2. System data dirs ($XDG_DATA_DIRS/applications or /usr/local/share and /usr/share)
+        if let Ok(data_dirs) = std::env::var("XDG_DATA_DIRS") {
+            for dir in data_dirs.split(':') {
+                let trimmed = dir.trim_end_matches('/');
+                if !trimmed.is_empty() {
+                    check_dirs.push(format!("{}/applications", trimmed));
+                }
+            }
+        } else {
+            check_dirs.push("/usr/local/share/applications".to_string());
+            check_dirs.push("/usr/share/applications".to_string());
+        }
+
         for dir_path in check_dirs {
-            if let Ok(entries) = fs::read_dir(dir_path) {
+            if let Ok(entries) = fs::read_dir(&dir_path) {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.is_file() && path.extension().is_some_and(|e| e == "desktop") {
-                        if let Some(app) = Self::parse_desktop_file(&path) {
-                            apps.push(app);
+                        if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                            // User entries processed first take precedence over system entries
+                            if !seen_ids.contains(file_name) {
+                                if let Some(app) = Self::parse_desktop_file(&path) {
+                                    seen_ids.insert(file_name.to_string());
+                                    apps.push(app);
+                                }
+                            }
                         }
                     }
                 }
             }
         }
 
-        apps.sort_by(|a, b| a.name.cmp(&b.name));
-        apps.dedup_by(|a, b| a.name == b.name);
-
+        apps.sort_by_key(|a| a.name.to_lowercase());
         Ok(apps)
     }
 
     async fn launch_application(&self, exec: &str) -> Result<()> {
-        let mut parts = exec.split_whitespace();
-        let cmd = parts.next().unwrap_or("");
-        if cmd.is_empty() {
-            return Err(anyhow::anyhow!("Empty exec string"));
+        let args = parse_exec_args(exec);
+        if args.is_empty() {
+            return Err(anyhow!("Empty exec command"));
         }
 
-        let mut command = std::process::Command::new(cmd);
-        for arg in parts {
-            // Strip %u, %U, %f, %F from desktop exec
-            if !arg.starts_with('%') {
-                command.arg(arg);
-            }
+        let mut command = std::process::Command::new(&args[0]);
+        if args.len() > 1 {
+            command.args(&args[1..]);
         }
 
         command
@@ -109,5 +167,81 @@ impl ApplicationsBackend for DesktopEntryBackend {
             .spawn()?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_exec_args_standard() {
+        let args = parse_exec_args("firefox %u");
+        assert_eq!(args, vec!["firefox"]);
+    }
+
+    #[test]
+    fn test_parse_exec_args_quoted_and_spaces() {
+        let args = parse_exec_args(r#""/opt/My App/bin" --flag "two words" %F"#);
+        assert_eq!(args, vec!["/opt/My App/bin", "--flag", "two words"]);
+    }
+
+    #[test]
+    fn test_parse_exec_args_flatpak() {
+        let args = parse_exec_args("flatpak run --branch=stable org.gnome.Calculator @@u %U @@");
+        assert_eq!(
+            args,
+            vec![
+                "flatpak",
+                "run",
+                "--branch=stable",
+                "org.gnome.Calculator",
+                "@@u",
+                "@@"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_desktop_content_valid() {
+        let content = r#"
+[Desktop Entry]
+Name=Text Editor
+Comment=Edit text files
+Exec=gedit %U
+Icon=org.gnome.gedit
+Type=Application
+Categories=GNOME;GTK;Utility;TextEditor;
+"#;
+        let app = DesktopEntryBackend::parse_desktop_content(content, "gedit.desktop")
+            .expect("Should parse valid desktop file");
+        assert_eq!(app.id, "gedit.desktop");
+        assert_eq!(app.name, "Text Editor");
+        assert_eq!(app.description, "Edit text files");
+        assert_eq!(app.exec, "gedit %U");
+        assert!(!app.is_flatpak);
+    }
+
+    #[test]
+    fn test_parse_desktop_content_nodisplay() {
+        let content = r#"
+[Desktop Entry]
+Name=Hidden Utility
+Exec=hidden-tool
+NoDisplay=true
+"#;
+        assert!(DesktopEntryBackend::parse_desktop_content(content, "hidden.desktop").is_none());
+    }
+
+    #[test]
+    fn test_parse_desktop_content_flatpak() {
+        let content = r#"
+[Desktop Entry]
+Name=GIMP
+Exec=flatpak run org.gimp.GIMP %U
+"#;
+        let app = DesktopEntryBackend::parse_desktop_content(content, "org.gimp.GIMP.desktop")
+            .expect("Should parse flatpak desktop");
+        assert!(app.is_flatpak);
     }
 }
