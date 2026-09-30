@@ -11,8 +11,29 @@ pub mod pages;
 pub mod widgets;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
-    // Overall margin to give a "premium" airy feel
     let area = f.size();
+
+    // Guard against tiny terminal sizes
+    if area.width < 45 || area.height < 10 {
+        let warn_msg = format!(
+            "Terminal too small ({}x{}). Resize to >= 45x10.",
+            area.width, area.height
+        );
+        let warn = Paragraph::new(Line::from(Span::styled(
+            warn_msg,
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )))
+        .alignment(ratatui::layout::Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+        f.render_widget(warn, area);
+        return;
+    }
 
     let main_layout = Layout::default()
         .direction(Direction::Vertical)
@@ -229,8 +250,24 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         }
     };
 
-    let content =
-        Paragraph::new(content_text).block(Block::default().padding(Padding::new(1, 1, 1, 1)));
+    let visible_height = content_layout[2].height.saturating_sub(2) as usize;
+    let selected_line_idx = content_text
+        .iter()
+        .position(|line| line.spans.iter().any(|s| s.content.starts_with(" > ")));
+
+    let scroll_y = if let Some(sel_line) = selected_line_idx {
+        if visible_height > 0 && sel_line >= visible_height {
+            sel_line.saturating_sub(visible_height / 2) as u16
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    let content = Paragraph::new(content_text)
+        .scroll((scroll_y, 0))
+        .block(Block::default().padding(Padding::new(1, 1, 1, 1)));
     f.render_widget(content, content_layout[2]);
 
     // Render notifications
