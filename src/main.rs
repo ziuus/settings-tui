@@ -32,25 +32,55 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
     if args.diagnose {
-        println!("Checking backend dependencies...");
-        let has_systemctl = std::process::Command::new("systemctl")
-            .arg("--version")
-            .output()
-            .is_ok();
-        let has_nmcli = std::process::Command::new("nmcli")
-            .arg("--version")
-            .output()
-            .is_ok();
-        let has_wpctl = std::process::Command::new("wpctl")
-            .arg("--version")
-            .output()
-            .is_ok();
-        println!(
-            "systemctl: {}",
-            if has_systemctl { "Found" } else { "Missing" }
+        println!("Checking Linux platform and backend capabilities...\n");
+        let caps = platform::PlatformCapabilities::detect(
+            std::process::Command::new("nmcli")
+                .arg("--version")
+                .output()
+                .is_ok(),
+            std::process::Command::new("bluetoothctl")
+                .arg("--version")
+                .output()
+                .is_ok(),
+            std::path::Path::new("/run/systemd/system").exists(),
+            std::process::Command::new("wpctl")
+                .arg("--version")
+                .output()
+                .is_ok(),
+            std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok(),
+            std::process::Command::new("gsettings")
+                .arg("help")
+                .output()
+                .is_ok(),
+            std::path::Path::new("/run/systemd/system").exists(),
         );
-        println!("nmcli: {}", if has_nmcli { "Found" } else { "Missing" });
-        println!("wpctl: {}", if has_wpctl { "Found" } else { "Missing" });
+
+        println!("  Desktop:       {}", caps.env.desktop);
+        println!("  Session Type:  {}", caps.env.session_type);
+        println!(
+            "  Compositor:    {}",
+            if caps.env.is_hyprland {
+                "Hyprland"
+            } else {
+                "Other / Unknown"
+            }
+        );
+        println!(
+            "  Init System:   {}",
+            if caps.env.is_systemd {
+                "systemd"
+            } else {
+                "Non-systemd"
+            }
+        );
+        println!("  Network:       {}", caps.network.status_text());
+        println!("  Bluetooth:     {}", caps.bluetooth.status_text());
+        println!("  Power:         {}", caps.power.status_text());
+        println!("  Sound:         {}", caps.sound.status_text());
+        println!("  Display:       {}", caps.display.status_text());
+        println!("  Appearance:    {}", caps.appearance.status_text());
+        println!("  Services:      {}", caps.services.status_text());
+        println!("  System:        {}", caps.system.status_text());
         return Ok(());
     }
 

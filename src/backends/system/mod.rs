@@ -44,13 +44,8 @@ impl SystemBackend for RealSystemBackend {
     }
 
     async fn power_action(&self, action: &str) -> Result<()> {
-        let cmd = match action {
-            "poweroff" => "poweroff",
-            "reboot" => "reboot",
-            "suspend" => "suspend",
-            "hibernate" => "hibernate",
-            _ => return Err(anyhow::anyhow!("Unknown power action")),
-        };
+        let cmd = crate::security::sanitize_systemctl_action(action)
+            .ok_or_else(|| anyhow::anyhow!("Unauthorized or invalid power action: '{}'", action))?;
 
         let status = std::process::Command::new("systemctl").arg(cmd).status()?;
 

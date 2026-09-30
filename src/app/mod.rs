@@ -921,7 +921,7 @@ impl App {
     }
 }
 
-pub async fn run(_args: Args) -> Result<(), Box<dyn Error>> {
+pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -929,7 +929,40 @@ pub async fn run(_args: Args) -> Result<(), Box<dyn Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let app = Arc::new(Mutex::new(App::new()));
+    let mut initial_app = App::new();
+
+    // Apply configuration if specified or found
+    let cfg = crate::config::SettingsConfig::load(args.config.as_deref().map(std::path::Path::new));
+    if let Some(def_cat) = cfg.default_category {
+        if let Some(pos) = initial_app
+            .categories
+            .iter()
+            .position(|c| c.eq_ignore_ascii_case(&def_cat))
+        {
+            initial_app.selected_category = pos;
+        }
+    }
+
+    // Apply CLI section argument
+    if let Some(sec) = &args.section {
+        if let Some(pos) = initial_app
+            .categories
+            .iter()
+            .position(|c| c.eq_ignore_ascii_case(sec))
+        {
+            initial_app.selected_category = pos;
+            initial_app.focus = Focus::Content;
+        }
+    }
+
+    // Apply CLI search argument
+    if let Some(q) = &args.search {
+        initial_app.is_searching = true;
+        initial_app.search_query = q.clone();
+        initial_app.update_search_results();
+    }
+
+    let app = Arc::new(Mutex::new(initial_app));
 
     let (tx, mut rx) = mpsc::channel(100);
 
@@ -1032,6 +1065,15 @@ pub async fn run(_args: Args) -> Result<(), Box<dyn Error>> {
                 Some(cmd) = cmd_rx.recv() => {
                     match cmd {
                         BackendCommand::ToggleService(name, start) => {
+                            if !crate::security::validate_service_name(&name) {
+                                let _ = tx_cmd_resp
+                                    .send(AppEvent::Notification(format!(
+                                        "Invalid service unit identifier: '{}'",
+                                        name
+                                    )))
+                                    .await;
+                                continue;
+                            }
                             if let Some(svc) = &svc_backend_for_cmd {
                                 let mutate = if start { svc.start_service(&name) } else { svc.stop_service(&name) };
 
