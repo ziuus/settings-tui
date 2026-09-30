@@ -1,0 +1,49 @@
+{
+  "name": "settings-tui",
+  "version": "0.1.0",
+  "description": "A production-grade universal Linux Settings Center for the terminal.",
+  "main": "bin/settings-tui.js",
+  "bin": {
+    "settings-tui": "bin/settings-tui.js",
+    "settings": "bin/settings-tui.js"
+  },
+  "scripts": {
+    "start": "node bin/settings-tui.js",
+    "build": "cargo build --release",
+    "test": "cargo test --all-features",
+    "fmt": "cargo fmt --check",
+    "clippy": "cargo clippy --all-targets --all-features -- -D warnings"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ziuus/settings-tui.git"
+  },
+  "keywords": [
+    "settings",
+    "settings-tui",
+    "tui",
+    "linux",
+    "cli",
+    "system-settings",
+    "networkmanager",
+    "pipewire",
+    "wireplumber",
+    "bluez",
+    "systemd",
+    "hyprland"
+  ],
+  "author": "Zius <zius@localhost>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/ziuus/settings-tui/issues"
+  },
+  "homepage": "https://github.com/ziuus/settings-tui#readme",
+  "os": [
+    "linux"
+  ],
+  "files": [
+    "bin/",
+    "README.md",
+    "LICENSE-MIT"
+  ]
+}
