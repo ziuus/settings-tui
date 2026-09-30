@@ -562,6 +562,42 @@ impl App {
         }
     }
 
+    pub fn clamp_selection(&mut self) {
+        let vis = self.visible_categories();
+        if let Some(cat) = vis.get(self.selected_category) {
+            let max_items = match cat.as_str() {
+                "Network" => {
+                    if self.wifi_enabled {
+                        self.networks.len() + 1
+                    } else {
+                        1
+                    }
+                }
+                "Bluetooth" => {
+                    if self.bluetooth_powered {
+                        self.bluetooth_devices.len() + 1
+                    } else {
+                        1
+                    }
+                }
+                "Sound" => {
+                    self.audio_sinks.len() + self.audio_sources.len() + self.audio_streams.len()
+                }
+                "Services" => self.services.len(),
+                "Display" => self.monitors.len(),
+                "Applications" => self.applications.len(),
+                "Appearance" => 1,
+                "System" => 4,
+                _ => 0,
+            };
+            if max_items == 0 {
+                self.selected_item = 0;
+            } else if self.selected_item >= max_items {
+                self.selected_item = max_items.saturating_sub(1);
+            }
+        }
+    }
+
     pub fn handle_key(&mut self, key: event::KeyEvent) {
         if let Some((_, ref cmd)) = self.confirm_action {
             match key.code {
@@ -1591,6 +1627,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                     app_lock.notification_timer = 12; // 3 seconds (250ms per tick)
                 }
             }
+            app_lock.clamp_selection();
         }
     }
 
@@ -1911,5 +1948,50 @@ mod tests {
             "Should navigate to System category"
         );
         assert_eq!(app.selected_item, 2, "Should target Reboot item index");
+    }
+
+    #[test]
+    fn test_clamp_selection_when_list_shrinks() {
+        let mut app = App::new();
+        let svc_idx = app.categories.iter().position(|c| c == "Services").unwrap();
+        app.selected_category = svc_idx;
+        app.focus = Focus::Content;
+
+        // Populate with 10 services
+        app.services = (0..10)
+            .map(|i| crate::backends::ServiceInfo {
+                name: format!("service_{}.service", i),
+                description: "Test service".to_string(),
+                active_state: "active".to_string(),
+                sub_state: "running".to_string(),
+            })
+            .collect();
+
+        app.selected_item = 8;
+        app.clamp_selection();
+        assert_eq!(app.selected_item, 8);
+
+        // List shrinks to 3 items
+        app.services.truncate(3);
+        app.clamp_selection();
+        assert_eq!(
+            app.selected_item, 2,
+            "selected_item must clamp to max valid index (2)"
+        );
+    }
+
+    #[test]
+    fn test_clamp_selection_empty_list() {
+        let mut app = App::new();
+        let svc_idx = app.categories.iter().position(|c| c == "Services").unwrap();
+        app.selected_category = svc_idx;
+        app.selected_item = 5;
+        app.services.clear();
+
+        app.clamp_selection();
+        assert_eq!(
+            app.selected_item, 0,
+            "selected_item must reset to 0 for empty list"
+        );
     }
 }
