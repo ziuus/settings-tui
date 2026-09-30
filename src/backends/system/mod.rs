@@ -136,6 +136,47 @@ impl SystemBackend for RealSystemBackend {
         }
     }
 
+    async fn set_hostname(&self, name: &str) -> Result<()> {
+        // Validate: only allow safe hostname characters
+        let valid = !name.is_empty()
+            && name.len() <= 64
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
+            && !name.starts_with('-')
+            && !name.ends_with('-');
+        if !valid {
+            return Err(anyhow!(
+                "Invalid hostname: use only letters, digits, hyphens, and dots."
+            ));
+        }
+
+        // Try D-Bus hostname1 first
+        if let Some(conn) = &self.connection {
+            if let Ok(proxy) = HostnameManagerProxy::new(conn).await {
+                if proxy.set_static_hostname(name, true).await.is_ok() {
+                    return Ok(());
+                }
+            }
+        }
+
+        // Fallback to hostnamectl CLI
+        let output = std::process::Command::new("hostnamectl")
+            .args(["set-hostname", name])
+            .output()?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let msg = stderr
+                .lines()
+                .next()
+                .unwrap_or("Failed to set hostname")
+                .trim();
+            Err(anyhow!("{}", msg))
+        }
+    }
+
     async fn power_action(&self, action: &str) -> Result<()> {
         let cmd = crate::security::sanitize_systemctl_action(action)
             .ok_or_else(|| anyhow!("Unauthorized or invalid power action: '{}'", action))?;
@@ -248,5 +289,17 @@ mod tests {
             root.unwrap().total_bytes > 0,
             "Root disk space must be positive"
         );
+    }
+
+    #[tokio::test]
+    async fn test_set_hostname_validation() {
+        let backend = RealSystemBackend::new_with_connection(None);
+        assert!(backend.set_hostname("").await.is_err());
+        assert!(backend.set_hostname("invalid hostname").await.is_err());
+        assert!(backend.set_hostname("-badstart").await.is_err());
+        assert!(backend.set_hostname("badend-").await.is_err());
+        assert!(backend.set_hostname("bad;rm -rf /").await.is_err());
+        assert!(backend.set_hostname("bad$(reboot)").await.is_err());
+        assert!(backend.set_hostname(&"a".repeat(65)).await.is_err());
     }
 }

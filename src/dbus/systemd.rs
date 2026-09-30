@@ -81,4 +81,6 @@ pub trait HostnameManager {
 
     #[zbus(property)]
     fn chassis(&self) -> zbus::Result<String>;
+
+    fn set_static_hostname(&self, hostname: &str, interactive: bool) -> zbus::Result<()>;
 }

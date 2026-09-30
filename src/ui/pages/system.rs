@@ -25,6 +25,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
             ),
+            Span::styled("  [e to edit]", Style::default().fg(Color::Yellow)),
             Span::styled("  •  Chassis: ", Style::default().fg(Color::DarkGray)),
             Span::raw(info.chassis.clone()),
         ]));

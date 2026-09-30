@@ -95,6 +95,9 @@ pub enum BackendCommand {
     ToggleLeftHanded(bool),
     SetPointerSensitivity(f64),
     ToggleVpn(String, bool), // uuid, activate
+    SetHostname(String),
+    CycleGtkTheme(bool), // true = next, false = prev
+    CycleIconTheme(bool),
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -153,6 +156,7 @@ pub struct App {
     pub search_selected_idx: usize,
     pub confirm_action: Option<(String, BackendCommand)>,
     pub password_modal: Option<PasswordModal>,
+    pub hostname_modal: Option<String>, // editing buffer for new hostname
     pub capabilities: crate::platform::PlatformCapabilities,
 }
 
@@ -180,6 +184,7 @@ impl App {
             networks: vec![],
             confirm_action: None,
             password_modal: None,
+            hostname_modal: None,
             capabilities: crate::platform::PlatformCapabilities::detect(
                 true, true, true, true, true, true, true, true,
             ),
@@ -502,11 +507,45 @@ impl App {
         );
         if app_score > 0 {
             self.search_results.push(SearchResult {
-                title: "Dark Mode / Theming".to_string(),
+                title: "Dark Mode".to_string(),
                 category: "Appearance".to_string(),
                 description: "System visual style and color scheme".to_string(),
                 target_item_idx: 0,
                 score: app_score,
+            });
+        }
+
+        let gtk_score = calc_score(
+            "GTK Theme",
+            "Appearance",
+            "Change desktop GTK3/GTK4 application theme",
+            "gtk theme style appearance desktop",
+            &q,
+        );
+        if gtk_score > 0 {
+            self.search_results.push(SearchResult {
+                title: "GTK Theme".to_string(),
+                category: "Appearance".to_string(),
+                description: "Select installed GTK application theme".to_string(),
+                target_item_idx: 1,
+                score: gtk_score,
+            });
+        }
+
+        let icon_score = calc_score(
+            "Icon Theme",
+            "Appearance",
+            "Change system icon theme and folder icons",
+            "icon icons theme appearance style",
+            &q,
+        );
+        if icon_score > 0 {
+            self.search_results.push(SearchResult {
+                title: "Icon Theme".to_string(),
+                category: "Appearance".to_string(),
+                description: "Select installed icon set".to_string(),
+                target_item_idx: 2,
+                score: icon_score,
             });
         }
 
@@ -722,7 +761,7 @@ impl App {
                 "Display" => self.monitors.len(),
                 "Applications" => self.applications.len(),
                 "Mouse & Touchpad" => 4,
-                "Appearance" => 1,
+                "Appearance" => 3,
                 "System" => 4,
                 _ => 0,
             };
@@ -758,6 +797,37 @@ impl App {
                 }
                 KeyCode::Char(c) => {
                     modal.password.push(c);
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        if self.hostname_modal.is_some() {
+            match key.code {
+                KeyCode::Esc => {
+                    self.hostname_modal = None;
+                }
+                KeyCode::Enter => {
+                    if let Some(name) = self.hostname_modal.take() {
+                        if !name.is_empty() {
+                            if let Some(tx) = &self.cmd_tx {
+                                let _ = tx.try_send(BackendCommand::SetHostname(name));
+                            }
+                        }
+                    }
+                }
+                KeyCode::Backspace => {
+                    if let Some(buf) = &mut self.hostname_modal {
+                        buf.pop();
+                    }
+                }
+                KeyCode::Char(c) => {
+                    if let Some(buf) = &mut self.hostname_modal {
+                        if buf.len() < 64 {
+                            buf.push(c);
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -859,6 +929,16 @@ impl App {
                                         tx.try_send(BackendCommand::SetPointerSensitivity(new_val));
                                 }
                             }
+                        } else if cat == "Appearance" {
+                            if self.selected_item == 1 {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CycleGtkTheme(true));
+                                }
+                            } else if self.selected_item == 2 {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CycleIconTheme(true));
+                                }
+                            }
                         }
                     }
                 }
@@ -893,6 +973,20 @@ impl App {
                                 }
                             }
                             return;
+                        } else if (key.code == KeyCode::Left || key.code == KeyCode::Char('h'))
+                            && cat == "Appearance"
+                        {
+                            if self.selected_item == 1 {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CycleGtkTheme(false));
+                                }
+                                return;
+                            } else if self.selected_item == 2 {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CycleIconTheme(false));
+                                }
+                                return;
+                            }
                         }
                     }
                     self.focus = Focus::Sidebar;
@@ -937,7 +1031,7 @@ impl App {
                                 base + self.monitors.len()
                             }
                             "Applications" => self.applications.len(),
-                            "Appearance" => 1,
+                            "Appearance" => 3,
                             "System" => 5,
                             _ => 0,
                         };
@@ -1076,9 +1170,19 @@ impl App {
                                     }
                                 }
                             }
-                        } else if cat == "Appearance" && self.selected_item == 0 {
-                            if let Some(tx) = &self.cmd_tx {
-                                let _ = tx.try_send(BackendCommand::ToggleColorScheme);
+                        } else if cat == "Appearance" {
+                            if self.selected_item == 0 {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::ToggleColorScheme);
+                                }
+                            } else if self.selected_item == 1 {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CycleGtkTheme(true));
+                                }
+                            } else if self.selected_item == 2 {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CycleIconTheme(true));
+                                }
                             }
                         } else if cat == "Power" && self.selected_item == 0 {
                             if let Some(tx) = &self.cmd_tx {
@@ -1299,6 +1403,22 @@ impl App {
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('e') | KeyCode::Char('E') | KeyCode::F(2) => {
+                let vis = self.visible_categories();
+                if self.focus == Focus::Content {
+                    if let Some(cat) = vis.get(self.selected_category) {
+                        if cat == "System" {
+                            // Open hostname rename modal pre-filled with current hostname
+                            let current = self
+                                .system_info
+                                .as_ref()
+                                .map(|s| s.hostname.clone())
+                                .unwrap_or_default();
+                            self.hostname_modal = Some(current);
                         }
                     }
                 }
@@ -2286,6 +2406,171 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 }
                             }
                         }
+                        BackendCommand::SetHostname(name) => {
+                            let target_name = name.clone();
+                            let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                sys_backend_for_cmd.set_hostname(&name),
+                                sys_backend_for_cmd.get_info(),
+                                |info: &SystemInfo| info.hostname == target_name,
+                                15,
+                                100
+                            );
+
+                            if mutation_ok {
+                                if verified {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::Notification(format!(
+                                            "Hostname updated to '{}'",
+                                            target_name
+                                        )))
+                                        .await;
+                                } else {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::Notification(
+                                            "Hostname change could not be verified (elevation may be needed)."
+                                                .to_string(),
+                                        ))
+                                        .await;
+                                }
+                            } else {
+                                let err_msg = mutation_error.unwrap_or_else(|| {
+                                    "Failed to set hostname (polkit elevation may be required).".to_string()
+                                });
+                                let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                            }
+
+                            if let Ok(info) = final_state {
+                                let _ = tx_cmd_resp.send(AppEvent::UpdateSystemInfo(info)).await;
+                            }
+                        }
+                        BackendCommand::CycleGtkTheme(next) => {
+                            if let Some(appr) = &appearance_backend_for_cmd {
+                                if let Ok(info) = appr.get_info().await {
+                                    if !info.available_gtk_themes.is_empty() {
+                                        let cur_idx = info
+                                            .available_gtk_themes
+                                            .iter()
+                                            .position(|t| t == &info.gtk_theme)
+                                            .unwrap_or(0);
+                                        let target_idx = if next {
+                                            (cur_idx + 1) % info.available_gtk_themes.len()
+                                        } else if cur_idx == 0 {
+                                            info.available_gtk_themes.len() - 1
+                                        } else {
+                                            cur_idx - 1
+                                        };
+                                        let target_theme =
+                                            info.available_gtk_themes[target_idx].clone();
+                                        let verify_target = target_theme.clone();
+
+                                        let (mutation_ok, verified, final_state, mutation_error) =
+                                            execute_transaction!(
+                                                appr.set_gtk_theme(&target_theme),
+                                                appr.get_info(),
+                                                |info: &AppearanceInfo| info.gtk_theme
+                                                    == verify_target,
+                                                10,
+                                                50
+                                            );
+
+                                        if mutation_ok {
+                                            if verified {
+                                                let _ = tx_cmd_resp
+                                                    .send(AppEvent::Notification(format!(
+                                                        "GTK theme set to '{}'",
+                                                        verify_target
+                                                    )))
+                                                    .await;
+                                            } else {
+                                                let _ = tx_cmd_resp
+                                                    .send(AppEvent::Notification(
+                                                        "GTK theme change could not be verified."
+                                                            .to_string(),
+                                                    ))
+                                                    .await;
+                                            }
+                                        } else {
+                                            let err_msg = mutation_error.unwrap_or_else(|| {
+                                                "Failed to set GTK theme.".to_string()
+                                            });
+                                            let _ = tx_cmd_resp
+                                                .send(AppEvent::Notification(err_msg))
+                                                .await;
+                                        }
+
+                                        if let Ok(actual_info) = final_state {
+                                            let _ = tx_cmd_resp
+                                                .send(AppEvent::UpdateAppearance(actual_info))
+                                                .await;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        BackendCommand::CycleIconTheme(next) => {
+                            if let Some(appr) = &appearance_backend_for_cmd {
+                                if let Ok(info) = appr.get_info().await {
+                                    if !info.available_icon_themes.is_empty() {
+                                        let cur_idx = info
+                                            .available_icon_themes
+                                            .iter()
+                                            .position(|t| t == &info.icon_theme)
+                                            .unwrap_or(0);
+                                        let target_idx = if next {
+                                            (cur_idx + 1) % info.available_icon_themes.len()
+                                        } else if cur_idx == 0 {
+                                            info.available_icon_themes.len() - 1
+                                        } else {
+                                            cur_idx - 1
+                                        };
+                                        let target_theme =
+                                            info.available_icon_themes[target_idx].clone();
+                                        let verify_target = target_theme.clone();
+
+                                        let (mutation_ok, verified, final_state, mutation_error) =
+                                            execute_transaction!(
+                                                appr.set_icon_theme(&target_theme),
+                                                appr.get_info(),
+                                                |info: &AppearanceInfo| info.icon_theme
+                                                    == verify_target,
+                                                10,
+                                                50
+                                            );
+
+                                        if mutation_ok {
+                                            if verified {
+                                                let _ = tx_cmd_resp
+                                                    .send(AppEvent::Notification(format!(
+                                                        "Icon theme set to '{}'",
+                                                        verify_target
+                                                    )))
+                                                    .await;
+                                            } else {
+                                                let _ = tx_cmd_resp
+                                                    .send(AppEvent::Notification(
+                                                        "Icon theme change could not be verified."
+                                                            .to_string(),
+                                                    ))
+                                                    .await;
+                                            }
+                                        } else {
+                                            let err_msg = mutation_error.unwrap_or_else(|| {
+                                                "Failed to set icon theme.".to_string()
+                                            });
+                                            let _ = tx_cmd_resp
+                                                .send(AppEvent::Notification(err_msg))
+                                                .await;
+                                        }
+
+                                        if let Ok(actual_info) = final_state {
+                                            let _ = tx_cmd_resp
+                                                .send(AppEvent::UpdateAppearance(actual_info))
+                                                .await;
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 _ = tokio::time::sleep_until(last_poll + Duration::from_secs(5)) => {
@@ -3259,5 +3544,74 @@ mod tests {
             found,
             "Search for 'touchpad' should yield Mouse & Touchpad settings"
         );
+    }
+
+    #[test]
+    fn test_appearance_theme_cycling() {
+        let mut app = App::new();
+        let app_idx = app
+            .categories
+            .iter()
+            .position(|c| c == "Appearance")
+            .unwrap();
+        app.selected_category = app_idx;
+        app.focus = Focus::Content;
+
+        let (tx, mut rx) = mpsc::channel(10);
+        app.cmd_tx = Some(tx);
+
+        // Item 1: GTK Theme
+        app.selected_item = 1;
+        app.handle_key(press(KeyCode::Right));
+        if let Ok(BackendCommand::CycleGtkTheme(next)) = rx.try_recv() {
+            assert!(next, "Right arrow should cycle next GTK theme");
+        } else {
+            panic!("Expected CycleGtkTheme(true)");
+        }
+
+        app.handle_key(press(KeyCode::Left));
+        if let Ok(BackendCommand::CycleGtkTheme(next)) = rx.try_recv() {
+            assert!(!next, "Left arrow should cycle previous GTK theme");
+        } else {
+            panic!("Expected CycleGtkTheme(false)");
+        }
+
+        // Item 2: Icon Theme
+        app.selected_item = 2;
+        app.handle_key(press(KeyCode::Enter));
+        if let Ok(BackendCommand::CycleIconTheme(next)) = rx.try_recv() {
+            assert!(next, "Enter should cycle next Icon theme");
+        } else {
+            panic!("Expected CycleIconTheme(true)");
+        }
+    }
+
+    #[test]
+    fn test_hostname_modal_flow() {
+        let mut app = App::new();
+        let sys_idx = app.categories.iter().position(|c| c == "System").unwrap();
+        app.selected_category = sys_idx;
+        app.focus = Focus::Content;
+
+        // Press 'e' in System page -> opens hostname modal
+        app.handle_key(press(KeyCode::Char('e')));
+        assert!(app.hostname_modal.is_some());
+
+        // Type 'new-host'
+        app.handle_key(press(KeyCode::Backspace));
+        app.handle_key(press(KeyCode::Char('a')));
+
+        let (tx, mut rx) = mpsc::channel(10);
+        app.cmd_tx = Some(tx);
+
+        // Press Enter to submit
+        app.handle_key(press(KeyCode::Enter));
+        assert!(app.hostname_modal.is_none());
+
+        if let Ok(BackendCommand::SetHostname(name)) = rx.try_recv() {
+            assert!(!name.is_empty());
+        } else {
+            panic!("Expected SetHostname command on Enter in hostname modal");
+        }
     }
 }

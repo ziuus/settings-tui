@@ -133,6 +133,7 @@ pub trait SystemBackend: Send + Sync {
     async fn get_info(&self) -> Result<SystemInfo>;
     async fn power_action(&self, action: &str) -> Result<()>;
     async fn set_ntp(&self, active: bool) -> Result<()>;
+    async fn set_hostname(&self, name: &str) -> Result<()>;
 }
 
 // Core definitions for Bluetooth
@@ -264,12 +265,16 @@ pub struct AppearanceInfo {
     pub icon_theme: String,
     pub cursor_theme: String,
     pub font_name: String,
+    pub available_gtk_themes: Vec<String>,
+    pub available_icon_themes: Vec<String>,
 }
 
 #[async_trait]
 pub trait AppearanceBackend: Send + Sync {
     async fn get_info(&self) -> Result<AppearanceInfo>;
     async fn set_color_scheme(&self, scheme: &str) -> Result<()>;
+    async fn set_gtk_theme(&self, theme: &str) -> Result<()>;
+    async fn set_icon_theme(&self, theme: &str) -> Result<()>;
 }
 
 // Core definitions for Applications
