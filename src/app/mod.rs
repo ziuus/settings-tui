@@ -61,6 +61,7 @@ pub enum AppEvent {
     UpdateMonitors(Vec<Monitor>),
     UpdateAppearance(AppearanceInfo),
     UpdateApplications(Vec<AppEntry>),
+    UpdateCapabilities(Box<crate::platform::PlatformCapabilities>),
     Notification(String),
 }
 
@@ -124,6 +125,7 @@ pub struct App {
     pub search_results: Vec<SearchResult>,
     pub search_selected_idx: usize,
     pub confirm_action: Option<(String, BackendCommand)>,
+    pub capabilities: crate::platform::PlatformCapabilities,
 }
 
 impl App {
@@ -148,6 +150,9 @@ impl App {
             wifi_enabled: true,
             networks: vec![],
             confirm_action: None,
+            capabilities: crate::platform::PlatformCapabilities::detect(
+                true, true, true, true, true, true, true,
+            ),
             bluetooth_devices: vec![],
             bluetooth_powered: false,
             power_info: None,
@@ -838,6 +843,19 @@ pub async fn run(_args: Args) -> Result<(), Box<dyn Error>> {
     };
     let tx_cmd_resp = tx.clone();
 
+    let capabilities = crate::platform::PlatformCapabilities::detect(
+        net_backend.is_some(),
+        bt_backend.is_some(),
+        power_backend.is_some(),
+        true,
+        display_backend.is_some(),
+        appearance_backend.is_some(),
+        services_backend.is_some(),
+    );
+    let _ = tx_backend
+        .send(AppEvent::UpdateCapabilities(Box::new(capabilities)))
+        .await;
+
     tokio::spawn(async move {
         let mut last_poll = tokio::time::Instant::now();
         loop {
@@ -1267,6 +1285,7 @@ pub async fn run(_args: Args) -> Result<(), Box<dyn Error>> {
                 AppEvent::UpdateMonitors(monitors) => app_lock.monitors = monitors,
                 AppEvent::UpdateAppearance(info) => app_lock.appearance_info = Some(info),
                 AppEvent::UpdateApplications(apps) => app_lock.applications = apps,
+                AppEvent::UpdateCapabilities(caps) => app_lock.capabilities = *caps,
                 AppEvent::Notification(msg) => {
                     app_lock.notifications.push(msg);
                     app_lock.notification_timer = 12; // 3 seconds (250ms per tick)
@@ -1329,8 +1348,14 @@ mod tests {
         ));
         // 'q' should NOT quit when confirm dialog is active
         app.handle_key(press(KeyCode::Char('q')));
-        assert!(!app.should_quit, "q should not quit while confirm dialog is shown");
-        assert!(app.confirm_action.is_some(), "confirm_action should still be set");
+        assert!(
+            !app.should_quit,
+            "q should not quit while confirm dialog is shown"
+        );
+        assert!(
+            app.confirm_action.is_some(),
+            "confirm_action should still be set"
+        );
     }
 
     #[test]
@@ -1341,7 +1366,10 @@ mod tests {
             BackendCommand::SystemPowerAction("poweroff".to_string()),
         ));
         app.handle_key(press(KeyCode::Char('n')));
-        assert!(app.confirm_action.is_none(), "confirm_action should be cleared on 'n'");
+        assert!(
+            app.confirm_action.is_none(),
+            "confirm_action should be cleared on 'n'"
+        );
     }
 
     #[test]
@@ -1352,7 +1380,10 @@ mod tests {
             BackendCommand::SystemPowerAction("reboot".to_string()),
         ));
         app.handle_key(press(KeyCode::Esc));
-        assert!(app.confirm_action.is_none(), "confirm_action should be cleared on Esc");
+        assert!(
+            app.confirm_action.is_none(),
+            "confirm_action should be cleared on Esc"
+        );
     }
 
     #[test]
@@ -1364,7 +1395,10 @@ mod tests {
         ));
         let initial_cat = app.selected_category;
         app.handle_key(press(KeyCode::Down));
-        assert_eq!(app.selected_category, initial_cat, "Navigation should be blocked by confirm dialog");
+        assert_eq!(
+            app.selected_category, initial_cat,
+            "Navigation should be blocked by confirm dialog"
+        );
     }
 
     #[test]
@@ -1388,7 +1422,11 @@ mod tests {
     #[test]
     fn test_no_panic_empty_bluetooth_devices() {
         let mut app = App::new();
-        let bt_idx = app.categories.iter().position(|c| c == "Bluetooth").unwrap();
+        let bt_idx = app
+            .categories
+            .iter()
+            .position(|c| c == "Bluetooth")
+            .unwrap();
         app.selected_category = bt_idx;
         app.focus = Focus::Content;
         app.selected_item = 0;
@@ -1443,7 +1481,10 @@ mod tests {
         // Move to sidebar then back
         app.handle_key(press(KeyCode::Left));
         app.handle_key(press(KeyCode::Enter));
-        assert_eq!(app.selected_item, 0, "selected_item should reset when entering content");
+        assert_eq!(
+            app.selected_item, 0,
+            "selected_item should reset when entering content"
+        );
     }
 
     #[test]
@@ -1459,7 +1500,10 @@ mod tests {
             app.handle_key(press(KeyCode::Down));
         }
         // Must stay at 3 (max index for 4 items)
-        assert_eq!(app.selected_item, 3, "System category should have max 4 items (0-3)");
+        assert_eq!(
+            app.selected_item, 3,
+            "System category should have max 4 items (0-3)"
+        );
     }
 
     #[test]
@@ -1472,7 +1516,10 @@ mod tests {
 
         // Enter should set confirm dialog, NOT directly execute
         app.handle_key(press(KeyCode::Enter));
-        assert!(app.confirm_action.is_some(), "Power off must require confirmation");
+        assert!(
+            app.confirm_action.is_some(),
+            "Power off must require confirmation"
+        );
         assert!(!app.should_quit, "App must not quit from power action");
     }
 
@@ -1494,6 +1541,9 @@ mod tests {
         for _ in 0..3 {
             app.on_tick();
         }
-        assert!(app.notifications.is_empty(), "Notifications should expire after timer");
+        assert!(
+            app.notifications.is_empty(),
+            "Notifications should expire after timer"
+        );
     }
 }

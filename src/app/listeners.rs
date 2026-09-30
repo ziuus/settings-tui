@@ -10,9 +10,7 @@ pub async fn spawn_network_listener(tx: mpsc::Sender<AppEvent>) {
         let Ok(conn) = zbus::Connection::system().await else {
             return;
         };
-        let Ok(proxy) =
-            crate::dbus::network_manager::NetworkManagerProxy::new(&conn).await
-        else {
+        let Ok(proxy) = crate::dbus::network_manager::NetworkManagerProxy::new(&conn).await else {
             return;
         };
         let Ok(net) = crate::backends::network::NetworkManagerBackend::new().await else {
@@ -53,9 +51,7 @@ pub async fn spawn_power_listener(tx: mpsc::Sender<AppEvent>) {
         let Ok(conn) = zbus::Connection::system().await else {
             return;
         };
-        let Ok(proxy) =
-            crate::dbus::power::UPowerDeviceProxy::new(&conn).await
-        else {
+        let Ok(proxy) = crate::dbus::power::UPowerDeviceProxy::new(&conn).await else {
             return;
         };
         let Ok(power) = crate::backends::power::UPowerBackend::new().await else {

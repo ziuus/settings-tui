@@ -120,3 +120,33 @@ pub fn setting_row<'a>(
 
     lines
 }
+
+pub fn capability_banner<'a>(
+    status: &crate::platform::CapabilityStatus,
+) -> Vec<ratatui::text::Line<'a>> {
+    match status {
+        crate::platform::CapabilityStatus::Supported => vec![],
+        crate::platform::CapabilityStatus::Partial(reason) => vec![
+            ratatui::text::Line::from(vec![
+                Span::styled(
+                    " [PARTIAL SUPPORT] ",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(reason.clone(), Style::default().fg(Color::Gray)),
+            ]),
+            ratatui::text::Line::from(""),
+        ],
+        crate::platform::CapabilityStatus::Unavailable(reason) => vec![
+            ratatui::text::Line::from(vec![
+                Span::styled(
+                    " [UNAVAILABLE] ",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(reason.clone(), Style::default().fg(Color::Gray)),
+            ]),
+            ratatui::text::Line::from(""),
+        ],
+    }
+}

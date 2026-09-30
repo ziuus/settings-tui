@@ -116,7 +116,12 @@ impl NetworkBackend for NetworkManagerBackend {
             Ok(())
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            let msg = stderr.lines().next().unwrap_or("Connection failed").trim().to_string();
+            let msg = stderr
+                .lines()
+                .next()
+                .unwrap_or("Connection failed")
+                .trim()
+                .to_string();
             Err(anyhow::anyhow!("{}", msg))
         }
     }
@@ -135,7 +140,12 @@ impl NetworkBackend for NetworkManagerBackend {
             Ok(())
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            let msg = stderr.lines().next().unwrap_or("Disconnect failed").trim().to_string();
+            let msg = stderr
+                .lines()
+                .next()
+                .unwrap_or("Disconnect failed")
+                .trim()
+                .to_string();
             Err(anyhow::anyhow!("{}", msg))
         }
     }

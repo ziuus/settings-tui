@@ -96,10 +96,18 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             } else {
                 ("  ", Style::default().fg(Color::DarkGray))
             };
-            ListItem::new(Line::from(vec![
-                Span::styled(prefix, style),
-                Span::styled(c.as_str(), style),
-            ]))
+            let status = app.capabilities.for_category(c);
+            let mut line_spans = vec![Span::styled(prefix, style), Span::styled(c.as_str(), style)];
+            match status {
+                crate::platform::CapabilityStatus::Supported => {}
+                crate::platform::CapabilityStatus::Partial(_) => {
+                    line_spans.push(Span::styled(" ~", Style::default().fg(Color::Yellow)));
+                }
+                crate::platform::CapabilityStatus::Unavailable(_) => {
+                    line_spans.push(Span::styled(" !", Style::default().fg(Color::Red)));
+                }
+            }
+            ListItem::new(Line::from(line_spans))
         })
         .collect();
 
@@ -183,7 +191,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         }
         lines
     } else {
-        match current_cat.as_str() {
+        let page_lines = match current_cat.as_str() {
             "Network" => pages::network::render(app, content_active),
             "Bluetooth" => pages::bluetooth::render(app, content_active),
             "Power" => pages::power::render(app, content_active),
@@ -208,6 +216,16 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     )),
                 ]
             }
+        };
+
+        let cap_status = app.capabilities.for_category(&current_cat);
+        let banner = widgets::capability_banner(cap_status);
+        if !banner.is_empty() {
+            let mut combined = banner;
+            combined.extend(page_lines);
+            combined
+        } else {
+            page_lines
         }
     };
 

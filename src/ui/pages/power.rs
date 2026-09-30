@@ -46,51 +46,61 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         )));
         lines.push(Line::from(""));
 
-        let state_str = match info.battery_state {
-            crate::backends::BatteryState::Charging => "Charging",
-            crate::backends::BatteryState::Discharging => "Discharging",
-            crate::backends::BatteryState::FullyCharged => "Fully Charged",
-            crate::backends::BatteryState::Empty => "Empty",
-            crate::backends::BatteryState::PendingCharge => "Pending Charge",
-            crate::backends::BatteryState::PendingDischarge => "Pending Discharge",
-            crate::backends::BatteryState::Unknown => "Unknown",
-        };
+        let has_battery = !matches!(info.battery_state, crate::backends::BatteryState::Unknown)
+            || info.on_battery;
 
-        // Battery Level (Read-Only)
-        let level_str = format!("{:.1}%", info.battery_percentage);
-        let level_lines = widgets::setting_row(
-            "Battery Level",
-            "Current charge capacity",
-            widgets::value_read_only(&level_str, false),
-            false,
-            60,
-        );
-        lines.extend(level_lines);
-
-        // Status (Read-Only)
-        let status_lines = widgets::setting_row(
-            "Status",
-            "Current charging state",
-            widgets::value_read_only(state_str, false),
-            false,
-            60,
-        );
-        lines.extend(status_lines);
-
-        // Power Source (Read-Only)
-        let source_str = if info.on_battery {
-            "Battery"
+        if !has_battery {
+            lines.push(Line::from(Span::styled(
+                "  No battery detected (desktop system)",
+                Style::default().fg(Color::DarkGray),
+            )));
         } else {
-            "AC Power"
-        };
-        let source_lines = widgets::setting_row(
-            "Power Source",
-            "Active power supply",
-            widgets::value_read_only(source_str, false),
-            false,
-            60,
-        );
-        lines.extend(source_lines);
+            let state_str = match info.battery_state {
+                crate::backends::BatteryState::Charging => "Charging",
+                crate::backends::BatteryState::Discharging => "Discharging",
+                crate::backends::BatteryState::FullyCharged => "Fully Charged",
+                crate::backends::BatteryState::Empty => "Empty",
+                crate::backends::BatteryState::PendingCharge => "Pending Charge",
+                crate::backends::BatteryState::PendingDischarge => "Pending Discharge",
+                crate::backends::BatteryState::Unknown => "Unknown",
+            };
+
+            // Battery Level (Read-Only)
+            let level_str = format!("{:.1}%", info.battery_percentage);
+            let level_lines = widgets::setting_row(
+                "Battery Level",
+                "Current charge capacity",
+                widgets::value_read_only(&level_str, false),
+                false,
+                60,
+            );
+            lines.extend(level_lines);
+
+            // Status (Read-Only)
+            let status_lines = widgets::setting_row(
+                "Status",
+                "Current charging state",
+                widgets::value_read_only(state_str, false),
+                false,
+                60,
+            );
+            lines.extend(status_lines);
+
+            // Power Source (Read-Only)
+            let source_str = if info.on_battery {
+                "Battery"
+            } else {
+                "AC Power"
+            };
+            let source_lines = widgets::setting_row(
+                "Power Source",
+                "Active power supply",
+                widgets::value_read_only(source_str, false),
+                false,
+                60,
+            );
+            lines.extend(source_lines);
+        }
     } else {
         lines.push(Line::from(Span::styled(
             "Loading power information...",
