@@ -35,13 +35,26 @@ impl RealSystemBackend {
 #[async_trait]
 impl SystemBackend for RealSystemBackend {
     async fn get_info(&self) -> Result<SystemInfo> {
-        let (memory_total, memory_used, uptime) = {
+        let (memory_total, memory_used, uptime, cpu_model, cpu_cores) = {
             let mut sys = self
                 .sys
                 .lock()
                 .map_err(|_| anyhow!("System info lock poisoned"))?;
             sys.refresh_memory();
-            (sys.total_memory(), sys.used_memory(), System::uptime())
+            sys.refresh_cpu();
+            let cpu_brand = sys
+                .cpus()
+                .first()
+                .map(|c| c.brand().trim().to_string())
+                .unwrap_or_else(|| "Unknown Processor".to_string());
+            let cores = sys.cpus().len();
+            (
+                sys.total_memory(),
+                sys.used_memory(),
+                System::uptime(),
+                cpu_brand,
+                cores,
+            )
         };
 
         let mut hostname = System::host_name().unwrap_or_else(|| "localhost".to_string());
@@ -108,6 +121,8 @@ impl SystemBackend for RealSystemBackend {
             timezone,
             ntp_active,
             disks,
+            cpu_model,
+            cpu_cores,
         })
     }
 

@@ -10,9 +10,9 @@ use tokio::sync::{mpsc, Mutex};
 
 use crate::backends::{
     system::RealSystemBackend, AppEntry, AppearanceBackend, AppearanceInfo, ApplicationsBackend,
-    AudioBackend, AudioDevice, BluetoothBackend, BluetoothDevice, DisplayBackend, Monitor, Network,
-    NetworkBackend, PowerBackend, PowerInfo, ServiceInfo, ServicesBackend, SystemBackend,
-    SystemInfo,
+    AudioBackend, AudioDevice, BluetoothBackend, BluetoothDevice, DefaultAppsInfo, DisplayBackend,
+    Monitor, Network, NetworkBackend, PowerBackend, PowerInfo, ServiceInfo, ServicesBackend,
+    SystemBackend, SystemInfo,
 };
 use crate::ui;
 use crate::Args;
@@ -60,7 +60,7 @@ pub enum AppEvent {
     UpdateServices(Vec<ServiceInfo>),
     UpdateMonitors(Vec<Monitor>),
     UpdateAppearance(AppearanceInfo),
-    UpdateApplications(Vec<AppEntry>),
+    UpdateApplications(Vec<AppEntry>, Option<DefaultAppsInfo>),
     UpdateCapabilities(Box<crate::platform::PlatformCapabilities>),
     UpdateBrightness(Option<u32>),
     UpdateActiveConnection(Option<crate::backends::ActiveConnectionInfo>),
@@ -82,7 +82,8 @@ pub enum BackendCommand {
     ConnectNetwork(crate::backends::NetworkId, bool),
     ConnectNetworkWithPassword(crate::backends::NetworkId, String),
     ForgetNetwork(crate::backends::NetworkId),
-    SetAudioDefault(u32),
+    RescanWifi,
+    SetAudioDefault(u32, bool),
     RemoveBluetoothDevice(crate::backends::BluetoothDeviceId),
     LaunchApplication(String),
     SystemPowerAction(String),
@@ -133,6 +134,7 @@ pub struct App {
     pub active_connection: Option<crate::backends::ActiveConnectionInfo>,
     pub appearance_info: Option<crate::backends::AppearanceInfo>,
     pub applications: Vec<crate::backends::AppEntry>,
+    pub default_apps: Option<DefaultAppsInfo>,
     pub cmd_tx: Option<mpsc::Sender<BackendCommand>>,
     pub notifications: Vec<String>,
     pub notification_timer: usize,
@@ -183,6 +185,7 @@ impl App {
             active_connection: None,
             appearance_info: None,
             applications: vec![],
+            default_apps: None,
             cmd_tx: None,
             notifications: vec![],
             notification_timer: 0,
@@ -935,8 +938,9 @@ impl App {
                                 if is_enter {
                                     if self.selected_item < sinks_len + sources_len {
                                         if let Some(tx) = &self.cmd_tx {
-                                            let _ =
-                                                tx.try_send(BackendCommand::SetAudioDefault(id));
+                                            let _ = tx.try_send(BackendCommand::SetAudioDefault(
+                                                id, is_sink,
+                                            ));
                                         }
                                     }
                                 } else {
@@ -1017,6 +1021,18 @@ impl App {
                                 format!("Forget Wi-Fi network profile '{}'?", net.name),
                                 BackendCommand::ForgetNetwork(net.id.clone()),
                             ));
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('r') | KeyCode::Char('R') => {
+                let vis = self.visible_categories();
+                if self.focus == Focus::Content {
+                    if let Some(cat) = vis.get(self.selected_category) {
+                        if cat == "Network" {
+                            if let Some(tx) = &self.cmd_tx {
+                                let _ = tx.try_send(BackendCommand::RescanWifi);
+                            }
                         }
                     }
                 }
@@ -1695,40 +1711,91 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 }
                             }
                         }
-                        BackendCommand::SetAudioDefault(id) => {
-                            let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
-                                audio_backend_for_cmd.set_default_sink(id),
-                                audio_backend_for_cmd.get_sinks(),
-                                |sinks: &Vec<crate::backends::AudioDevice>| {
-                                    sinks.iter().any(|s| s.id == id && s.is_default)
-                                },
-                                10, 50
-                            );
-                            if mutation_ok {
-                                if verified {
-                                    let _ = tx_cmd_resp
-                                        .send(AppEvent::Notification(
-                                            "Default audio device updated.".to_string(),
-                                        ))
-                                        .await;
+                        BackendCommand::RescanWifi => {
+                            if let Some(net) = &network_backend_for_cmd {
+                                let _ = net.rescan().await;
+                                tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
+                                if let Ok(networks) = net.networks().await {
+                                    if let Ok(enabled) = net.wifi_enabled().await {
+                                        let _ = tx_cmd_resp.send(AppEvent::UpdateNetworks(enabled, networks)).await;
+                                        let _ = tx_cmd_resp.send(AppEvent::Notification("Wi-Fi network list refreshed.".to_string())).await;
+                                    }
+                                }
+                            }
+                        }
+                        BackendCommand::SetAudioDefault(id, is_sink) => {
+                            if is_sink {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    audio_backend_for_cmd.set_default_sink(id),
+                                    audio_backend_for_cmd.get_sinks(),
+                                    |sinks: &Vec<crate::backends::AudioDevice>| {
+                                        sinks.iter().any(|s| s.id == id && s.is_default)
+                                    },
+                                    10, 50
+                                );
+                                if mutation_ok {
+                                    if verified {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(
+                                                "Default output audio device updated.".to_string(),
+                                            ))
+                                            .await;
+                                    } else {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(
+                                                "Audio default change could not be verified."
+                                                    .to_string(),
+                                            ))
+                                            .await;
+                                    }
                                 } else {
-                                    let _ = tx_cmd_resp
-                                        .send(AppEvent::Notification(
-                                            "Audio default change could not be verified."
-                                                .to_string(),
-                                        ))
-                                        .await;
+                                    let err_msg = mutation_error.unwrap_or_else(|| format!("Failed to set default output device to {}", id));
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+                                if let Ok(sinks) = final_state {
+                                    if let Ok(sources) = audio_backend_for_cmd.get_sources().await {
+                                        if let Ok(streams) = audio_backend_for_cmd.get_streams().await {
+                                            let _ = tx_cmd_resp
+                                                .send(AppEvent::UpdateAudio(sinks, sources, streams))
+                                                .await;
+                                        }
+                                    }
                                 }
                             } else {
-                                let err_msg = mutation_error.unwrap_or_else(|| format!("Failed to set default device to {}", id));
-                                let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
-                            }
-                            if let Ok(sinks) = final_state {
-                                if let Ok(sources) = audio_backend_for_cmd.get_sources().await {
-                                    if let Ok(streams) = audio_backend_for_cmd.get_streams().await {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    audio_backend_for_cmd.set_default_source(id),
+                                    audio_backend_for_cmd.get_sources(),
+                                    |sources: &Vec<crate::backends::AudioDevice>| {
+                                        sources.iter().any(|s| s.id == id && s.is_default)
+                                    },
+                                    10, 50
+                                );
+                                if mutation_ok {
+                                    if verified {
                                         let _ = tx_cmd_resp
-                                            .send(AppEvent::UpdateAudio(sinks, sources, streams))
+                                            .send(AppEvent::Notification(
+                                                "Default input audio device updated.".to_string(),
+                                            ))
                                             .await;
+                                    } else {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(
+                                                "Audio input change could not be verified."
+                                                    .to_string(),
+                                            ))
+                                            .await;
+                                    }
+                                } else {
+                                    let err_msg = mutation_error.unwrap_or_else(|| format!("Failed to set default input device to {}", id));
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+                                if let Ok(sources) = final_state {
+                                    if let Ok(sinks) = audio_backend_for_cmd.get_sinks().await {
+                                        if let Ok(streams) = audio_backend_for_cmd.get_streams().await {
+                                            let _ = tx_cmd_resp
+                                                .send(AppEvent::UpdateAudio(sinks, sources, streams))
+                                                .await;
+                                        }
                                     }
                                 }
                             }
@@ -1925,7 +1992,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         }
                     }
                     if let Ok(apps) = apps_backend.get_applications().await {
-                        let _ = tx_backend.send(AppEvent::UpdateApplications(apps)).await;
+                        let defs = apps_backend.get_default_apps().await.ok();
+                        let _ = tx_backend.send(AppEvent::UpdateApplications(apps, defs)).await;
                     }
                 }
             }
@@ -1971,7 +2039,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                 AppEvent::UpdateBrightness(b) => app_lock.display_brightness = b,
                 AppEvent::UpdateActiveConnection(conn) => app_lock.active_connection = conn,
                 AppEvent::UpdateAppearance(info) => app_lock.appearance_info = Some(info),
-                AppEvent::UpdateApplications(apps) => app_lock.applications = apps,
+                AppEvent::UpdateApplications(apps, defs) => {
+                    app_lock.applications = apps;
+                    if defs.is_some() {
+                        app_lock.default_apps = defs;
+                    }
+                }
                 AppEvent::UpdateCapabilities(caps) => app_lock.capabilities = *caps,
                 AppEvent::Notification(msg) => {
                     app_lock.notifications.push(msg);
@@ -2426,6 +2499,8 @@ mod tests {
             timezone: "UTC".to_string(),
             ntp_active: true,
             disks: vec![],
+            cpu_model: "Intel i5".to_string(),
+            cpu_cores: 8,
         });
 
         let (tx, mut rx) = mpsc::channel(10);
@@ -2536,6 +2611,7 @@ mod tests {
             interface: "wlan0".to_string(),
             ip_address: "192.168.1.50".to_string(),
             gateway: "192.168.1.1".to_string(),
+            mac_address: "aa:bb:cc:dd:ee:ff".to_string(),
             dns_servers: vec!["1.1.1.1".to_string(), "8.8.8.8".to_string()],
         });
 
@@ -2655,6 +2731,68 @@ mod tests {
             assert!(connect);
         } else {
             panic!("Expected ConnectNetwork command");
+        }
+    }
+
+    #[test]
+    fn test_network_rescan_key() {
+        let mut app = App::new();
+        let net_idx = app.categories.iter().position(|c| c == "Network").unwrap();
+        app.selected_category = net_idx;
+        app.focus = Focus::Content;
+
+        let (tx, mut rx) = mpsc::channel(10);
+        app.cmd_tx = Some(tx);
+
+        app.handle_key(press(KeyCode::Char('r')));
+        if let Ok(BackendCommand::RescanWifi) = rx.try_recv() {
+            // Success
+        } else {
+            panic!("Expected RescanWifi command on 'r'");
+        }
+    }
+
+    #[test]
+    fn test_sound_default_source_selection() {
+        let mut app = App::new();
+        let sound_idx = app.categories.iter().position(|c| c == "Sound").unwrap();
+        app.selected_category = sound_idx;
+        app.focus = Focus::Content;
+
+        // Add 1 sink (item 0) and 1 source (item 1)
+        app.audio_sinks.push(crate::backends::AudioDevice {
+            id: 42,
+            name: "speakers".to_string(),
+            description: "Builtin Speakers".to_string(),
+            is_default: true,
+            volume: 0.5,
+            muted: false,
+            is_sink: true,
+            form_factor: "internal".to_string(),
+        });
+        app.audio_sources.push(crate::backends::AudioDevice {
+            id: 88,
+            name: "mic".to_string(),
+            description: "USB Microphone".to_string(),
+            is_default: false,
+            volume: 0.8,
+            muted: false,
+            is_sink: false,
+            form_factor: "usb".to_string(),
+        });
+
+        // Focus the microphone (item 1)
+        app.selected_item = 1;
+
+        let (tx, mut rx) = mpsc::channel(10);
+        app.cmd_tx = Some(tx);
+
+        app.handle_key(press(KeyCode::Enter));
+        if let Ok(BackendCommand::SetAudioDefault(id, is_sink)) = rx.try_recv() {
+            assert_eq!(id, 88);
+            assert!(!is_sink, "Microphone must have is_sink = false");
+        } else {
+            panic!("Expected SetAudioDefault with is_sink = false");
         }
     }
 }

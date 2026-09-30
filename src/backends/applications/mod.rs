@@ -1,4 +1,4 @@
-use super::{AppEntry, ApplicationsBackend};
+use super::{AppEntry, ApplicationsBackend, DefaultAppsInfo};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use std::collections::HashSet;
@@ -167,6 +167,30 @@ impl ApplicationsBackend for DesktopEntryBackend {
             .spawn()?;
 
         Ok(())
+    }
+
+    async fn get_default_apps(&self) -> Result<DefaultAppsInfo> {
+        let query_mime = |mime: &str| -> Option<String> {
+            let output = std::process::Command::new("xdg-mime")
+                .args(["query", "default", mime])
+                .output()
+                .ok()?;
+            if output.status.success() {
+                let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !s.is_empty() {
+                    return Some(s);
+                }
+            }
+            None
+        };
+
+        Ok(DefaultAppsInfo {
+            web_browser: query_mime("x-scheme-handler/https")
+                .or_else(|| query_mime("x-scheme-handler/http")),
+            file_manager: query_mime("inode/directory"),
+            mail_client: query_mime("x-scheme-handler/mailto"),
+            text_editor: query_mime("text/plain"),
+        })
     }
 }
 

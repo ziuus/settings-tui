@@ -5,15 +5,46 @@ use ratatui::{
 };
 
 pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
-    let mut text = vec![
-        Line::from(Span::styled(
-            "Installed Applications",
+    let mut text = Vec::new();
+
+    if let Some(defs) = &app.default_apps {
+        text.push(Line::from(Span::styled(
+            "Default Handlers",
             Style::default()
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-    ];
+        )));
+        let browser = defs.web_browser.as_deref().unwrap_or("None");
+        let fm = defs.file_manager.as_deref().unwrap_or("None");
+        let mail = defs.mail_client.as_deref().unwrap_or("None");
+        let editor = defs.text_editor.as_deref().unwrap_or("None");
+
+        text.push(Line::from(vec![
+            Span::styled("  Web Browser:  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(browser, Style::default().fg(Color::Cyan)),
+        ]));
+        text.push(Line::from(vec![
+            Span::styled("  File Manager: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(fm, Style::default().fg(Color::Cyan)),
+        ]));
+        text.push(Line::from(vec![
+            Span::styled("  Text Editor:  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(editor, Style::default().fg(Color::Cyan)),
+        ]));
+        text.push(Line::from(vec![
+            Span::styled("  Mail Client:  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(mail, Style::default().fg(Color::Cyan)),
+        ]));
+        text.push(Line::from(""));
+    }
+
+    text.push(Line::from(Span::styled(
+        "Installed Applications",
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
+    )));
+    text.push(Line::from(""));
 
     if app.applications.is_empty() {
         text.push(Line::from(Span::styled(

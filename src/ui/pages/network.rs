@@ -42,6 +42,17 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             ));
         }
 
+        if !conn.mac_address.is_empty() {
+            conn_spans.push(Span::styled(
+                "   •   MAC: ",
+                Style::default().fg(Color::DarkGray),
+            ));
+            conn_spans.push(Span::styled(
+                &conn.mac_address,
+                Style::default().fg(Color::LightBlue),
+            ));
+        }
+
         text.push(Line::from(conn_spans));
         text.push(Line::from(""));
     }
@@ -57,16 +68,19 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
 
     if app.networks.is_empty() && app.wifi_enabled {
         text.push(Line::from(Span::styled(
-            "  No Wi-Fi networks found in range.",
+            "  No Wi-Fi networks found in range. (Press 'r' to rescan)",
             Style::default().fg(Color::DarkGray),
         )));
     } else if app.wifi_enabled {
-        text.push(Line::from(Span::styled(
-            "Available Networks",
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        )));
+        text.push(Line::from(vec![
+            Span::styled(
+                "Available Networks",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("  [r: Rescan]", Style::default().fg(Color::DarkGray)),
+        ]));
         text.push(Line::from(""));
 
         let page_size = 15;

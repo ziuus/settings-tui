@@ -181,6 +181,12 @@ impl NetworkBackend for NetworkManagerBackend {
                     }
 
                     if !dev.is_empty() {
+                        let mac_address =
+                            std::fs::read_to_string(format!("/sys/class/net/{}/address", dev))
+                                .unwrap_or_default()
+                                .trim()
+                                .to_string();
+
                         return Ok(Some(ActiveConnectionInfo {
                             interface: dev,
                             ip_address: if src.is_empty() {
@@ -189,6 +195,7 @@ impl NetworkBackend for NetworkManagerBackend {
                                 src
                             },
                             gateway: if gw.is_empty() { "N/A".to_string() } else { gw },
+                            mac_address,
                             dns_servers,
                         }));
                     }
@@ -295,5 +302,12 @@ impl NetworkBackend for NetworkManagerBackend {
                 .to_string();
             Err(anyhow::anyhow!("{}", msg))
         }
+    }
+
+    async fn rescan(&self) -> Result<()> {
+        let _ = std::process::Command::new("nmcli")
+            .args(["device", "wifi", "rescan"])
+            .output();
+        Ok(())
     }
 }

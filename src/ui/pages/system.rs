@@ -37,6 +37,10 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             Span::raw(info.kernel.clone()),
         ]));
         text.push(Line::from(vec![
+            Span::styled("  CPU:      ", Style::default().fg(Color::Gray)),
+            Span::raw(format!("{} ({} cores)", info.cpu_model, info.cpu_cores)),
+        ]));
+        text.push(Line::from(vec![
             Span::styled("  Uptime:   ", Style::default().fg(Color::Gray)),
             Span::raw(format!(
                 "{} hours, {} mins",

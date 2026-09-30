@@ -214,6 +214,18 @@ impl AudioBackend for WpctlBackend {
         }
     }
 
+    async fn set_default_source(&self, id: u32) -> Result<()> {
+        let status = Command::new("wpctl")
+            .arg("set-default")
+            .arg(id.to_string())
+            .status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(anyhow!("wpctl set-default source failed"))
+        }
+    }
+
     async fn set_volume(&self, id: u32, volume: f64) -> Result<()> {
         let vol_str = format!("{:.2}", volume);
         let status = Command::new("wpctl")

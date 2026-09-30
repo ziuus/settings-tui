@@ -40,6 +40,7 @@ pub trait AudioBackend: Send + Sync {
     async fn get_streams(&self) -> Result<Vec<AudioStream>>;
     async fn get_volume(&self, id: u32) -> Result<(f64, bool)>;
     async fn set_default_sink(&self, id: u32) -> Result<()>;
+    async fn set_default_source(&self, id: u32) -> Result<()>;
     async fn set_volume(&self, id: u32, volume: f64) -> Result<()>;
     #[allow(dead_code)]
     async fn set_mute(&self, id: u32, mute: bool) -> Result<()>;
@@ -55,6 +56,7 @@ pub struct ActiveConnectionInfo {
     pub interface: String,
     pub ip_address: String,
     pub gateway: String,
+    pub mac_address: String,
     pub dns_servers: Vec<String>,
 }
 
@@ -79,6 +81,15 @@ pub trait NetworkBackend: Send + Sync {
     async fn connect_with_password(&self, network: &NetworkId, password: &str) -> Result<()>;
     async fn disconnect(&self, network: &NetworkId) -> Result<()>;
     async fn forget_network(&self, network: &NetworkId) -> Result<()>;
+    async fn rescan(&self) -> Result<()>;
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DefaultAppsInfo {
+    pub web_browser: Option<String>,
+    pub file_manager: Option<String>,
+    pub mail_client: Option<String>,
+    pub text_editor: Option<String>,
 }
 
 // System Backend
@@ -102,6 +113,8 @@ pub struct SystemInfo {
     pub timezone: String,
     pub ntp_active: bool,
     pub disks: Vec<SystemDiskInfo>,
+    pub cpu_model: String,
+    pub cpu_cores: usize,
 }
 
 #[async_trait]
@@ -263,4 +276,5 @@ pub struct AppEntry {
 pub trait ApplicationsBackend: Send + Sync {
     async fn get_applications(&self) -> Result<Vec<AppEntry>>;
     async fn launch_application(&self, exec: &str) -> Result<()>;
+    async fn get_default_apps(&self) -> Result<DefaultAppsInfo>;
 }

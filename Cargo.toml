@@ -1,6 +1,6 @@
 [package]
 name = "settings-tui"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "A production-grade universal Linux Settings Center for the terminal."
 
