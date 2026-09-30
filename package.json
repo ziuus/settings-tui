@@ -16,7 +16,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ziuus/settings-tui.git"
+    "url": "git+https://github.com/ziuus/settings-tui.git"
   },
   "keywords": [
     "settings",
