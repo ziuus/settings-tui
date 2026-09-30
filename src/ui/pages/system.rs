@@ -57,18 +57,29 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
     )));
     text.push(Line::from(""));
 
-    let actions = ["Suspend", "Hibernate", "Reboot", "Power Off"];
+    let actions = [
+        (
+            "Suspend",
+            "Save session state to RAM and enter low-power sleep mode",
+        ),
+        (
+            "Hibernate",
+            "Save session state to swap and power off system",
+        ),
+        (
+            "Reboot",
+            "Close all applications and restart the operating system",
+        ),
+        (
+            "Power Off",
+            "Close all applications and shut down computer power",
+        ),
+    ];
 
-    for (i, action) in actions.iter().enumerate() {
+    for (i, (action, desc)) in actions.iter().enumerate() {
         let is_selected = content_active && app.selected_item == i;
         let control = widgets::value_selector("Execute [Enter]", is_selected);
-        let action_lines = widgets::setting_row(
-            action,
-            "Trigger system power action",
-            control,
-            is_selected,
-            60,
-        );
+        let action_lines = widgets::setting_row(action, desc, control, is_selected, 60);
         text.extend(action_lines);
     }
 

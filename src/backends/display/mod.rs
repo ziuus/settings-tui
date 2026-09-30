@@ -65,11 +65,20 @@ impl DisplayBackend for HyprlandBackend {
         height: i32,
         refresh: f64,
     ) -> Result<()> {
+        let scale = if let Ok(monitors) = self.get_monitors().await {
+            monitors
+                .into_iter()
+                .find(|m| m.name == name)
+                .map(|m| m.scale)
+                .unwrap_or(1.0)
+        } else {
+            1.0
+        };
         let res_str = format!("{}x{}@{}", width, height, refresh);
         let status = Command::new("hyprctl")
             .arg("keyword")
             .arg("monitor")
-            .arg(format!("{},{},auto,1", name, res_str))
+            .arg(format!("{},{},auto,{}", name, res_str, scale))
             .status()?;
 
         if status.success() {

@@ -829,16 +829,16 @@ impl App {
                                     .try_send(BackendCommand::LaunchApplication(app.exec.clone()));
                             }
                         } else if cat == "System" && is_enter {
-                            let action = match self.selected_item {
-                                0 => "suspend",
-                                1 => "hibernate",
-                                2 => "reboot",
-                                3 => "poweroff",
-                                _ => "",
+                            let (action, prompt) = match self.selected_item {
+                                0 => ("suspend", "Suspend the system to RAM now?"),
+                                1 => ("hibernate", "Hibernate session to swap and power off?"),
+                                2 => ("reboot", "Restart the computer now? (Unsaved work will be lost)"),
+                                3 => ("poweroff", "Shut down and power off the computer? (Unsaved work will be lost)"),
+                                _ => ("", ""),
                             };
                             if !action.is_empty() {
                                 self.confirm_action = Some((
-                                    format!("Are you sure you want to {}?", action),
+                                    prompt.to_string(),
                                     BackendCommand::SystemPowerAction(action.to_string()),
                                 ));
                             }
@@ -1035,7 +1035,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     // Backend fetching task
     let tx_backend = tx.clone();
-    let sys_backend = RealSystemBackend::new();
+    let sys_backend = RealSystemBackend::new().await;
 
     let net_backend = crate::backends::network::NetworkManagerBackend::new()
         .await
@@ -1069,7 +1069,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let network_backend_for_cmd = crate::backends::network::NetworkManagerBackend::new()
         .await
         .ok();
-    let sys_backend_for_cmd = crate::backends::system::RealSystemBackend::new();
+    let sys_backend_for_cmd = crate::backends::system::RealSystemBackend::new().await;
     let display_backend_for_cmd = {
         let is_hyprland = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok();
         let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
@@ -1113,7 +1113,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             if let Some(svc) = &svc_backend_for_cmd {
                                 let mutate = if start { svc.start_service(&name) } else { svc.stop_service(&name) };
 
-                                let (mutation_ok, verified, final_state, _mutation_error) = execute_transaction!(
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     mutate,
                                     svc.get_services(),
                                     |svcs: &Vec<ServiceInfo>| {
@@ -1132,7 +1132,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                         let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Service {} change could not be verified.", name))).await;
                                     }
                                 } else {
-                                    let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Failed to {} service {}.", if start { "start" } else { "stop" }, name))).await;
+                                    let err_msg = mutation_error.unwrap_or_else(|| format!("Failed to {} service {}.", if start { "start" } else { "stop" }, name));
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                                 }
 
                                 if let Ok(svcs) = final_state {
@@ -1142,7 +1143,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         }
                         BackendCommand::ToggleBluetoothPower(target_state) => {
                             if let Some(bt) = &bt_backend_for_cmd {
-                                let (mutation_ok, verified, final_state, _mutation_error) = execute_transaction!(
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     bt.set_powered(target_state),
                                     bt.get_adapter(),
                                     |adapter: &Option<crate::backends::BluetoothAdapter>| {
@@ -1162,7 +1163,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                         let _ = tx_cmd_resp.send(AppEvent::Notification("Bluetooth change could not be verified.".to_string())).await;
                                     }
                                 } else {
-                                    let _ = tx_cmd_resp.send(AppEvent::Notification("Failed to toggle Bluetooth.".to_string())).await;
+                                    let err_msg = mutation_error.unwrap_or_else(|| "Failed to toggle Bluetooth.".to_string());
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                                 }
 
                                 if let Ok(adapter) = final_state {
@@ -1173,7 +1175,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         BackendCommand::ConnectBluetooth(id, connect) => {
                             if let Some(bt) = &bt_backend_for_cmd {
                                 let mutate = if connect { bt.connect_device(&id) } else { bt.disconnect_device(&id) };
-                                let (mutation_ok, verified, final_state, _mutation_error) = execute_transaction!(
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     mutate,
                                     bt.devices(),
                                     |devices: &Vec<crate::backends::BluetoothDevice>| {
@@ -1193,7 +1195,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                         let _ = tx_cmd_resp.send(AppEvent::Notification("Bluetooth change could not be verified.".to_string())).await;
                                     }
                                 } else {
-                                    let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Failed to {} Bluetooth device.", if connect { "connect" } else { "disconnect" }))).await;
+                                    let err_msg = mutation_error.unwrap_or_else(|| format!("Failed to {} Bluetooth device.", if connect { "connect" } else { "disconnect" }));
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                                 }
 
                                 if let Ok(devices) = final_state {
@@ -1209,7 +1212,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 .unwrap_or(false);
                             let target_muted = !initial_muted;
 
-                            let (mutation_ok, verified, _final_state, _mutation_error) = execute_transaction!(
+                            let (mutation_ok, verified, _final_state, mutation_error) = execute_transaction!(
                                 audio_backend_for_cmd.toggle_mute(id),
                                 audio_backend_for_cmd.get_volume(id),
                                 |(_, muted): &(f64, bool)| *muted == target_muted,
@@ -1233,12 +1236,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                         .await;
                                 }
                             } else {
-                                let _ = tx_cmd_resp
-                                    .send(AppEvent::Notification(format!(
-                                        "Failed to toggle mute for audio device {}",
-                                        id
-                                    )))
-                                    .await;
+                                let err_msg = mutation_error.unwrap_or_else(|| format!("Failed to toggle mute for audio device {}", id));
+                                let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                             }
                             if let Ok(sinks) = audio_backend_for_cmd.get_sinks().await {
                                 if let Ok(sources) = audio_backend_for_cmd.get_sources().await {
@@ -1251,19 +1250,15 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::SetAudioVolume(id, vol) => {
-                            let (mutation_ok, verified, _final_state, _mutation_error) = execute_transaction!(
+                            let (mutation_ok, verified, _final_state, mutation_error) = execute_transaction!(
                                 audio_backend_for_cmd.set_volume(id, vol),
                                 audio_backend_for_cmd.get_volume(id),
                                 |(cur_vol, _): &(f64, bool)| (*cur_vol - vol).abs() < 0.03,
                                 10, 50
                             );
                             if !mutation_ok {
-                                let _ = tx_cmd_resp
-                                    .send(AppEvent::Notification(format!(
-                                        "Failed to set volume for device {}",
-                                        id
-                                    )))
-                                    .await;
+                                let err_msg = mutation_error.unwrap_or_else(|| format!("Failed to set volume for device {}", id));
+                                let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                             } else if !verified {
                                 let _ = tx_cmd_resp
                                     .send(AppEvent::Notification(
@@ -1284,7 +1279,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         }
                         BackendCommand::SetDisplayResolution(name, width, height, refresh) => {
                             if let Some(disp) = &display_backend_for_cmd {
-                                let (mutation_ok, verified, final_state, _mutation_error) = execute_transaction!(
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     disp.set_resolution(&name, width, height, refresh),
                                     disp.get_monitors(),
                                     |monitors: &Vec<crate::backends::Monitor>| {
@@ -1304,7 +1299,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                         let _ = tx_cmd_resp.send(AppEvent::Notification("Display change could not be verified.".to_string())).await;
                                     }
                                 } else {
-                                    let _ = tx_cmd_resp.send(AppEvent::Notification("Failed to set display resolution.".to_string())).await;
+                                    let err_msg = mutation_error.unwrap_or_else(|| "Failed to set display resolution.".to_string());
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                                 }
 
                                 if let Ok(monitors) = final_state {
@@ -1320,7 +1316,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                     } else {
                                         "prefer-dark"
                                     };
-                                    let (mutation_ok, verified, final_state, _mutation_error) = execute_transaction!(
+                                    let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                         appr.set_color_scheme(new_scheme),
                                         appr.get_info(),
                                         |info: &AppearanceInfo| info.color_scheme == new_scheme,
@@ -1334,7 +1330,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                             let _ = tx_cmd_resp.send(AppEvent::Notification("Change could not be verified.".to_string())).await;
                                         }
                                     } else {
-                                        let _ = tx_cmd_resp.send(AppEvent::Notification("Failed to set color scheme.".to_string())).await;
+                                        let err_msg = mutation_error.unwrap_or_else(|| "Failed to set color scheme.".to_string());
+                                        let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                                     }
 
                                     if let Ok(actual_info) = final_state {
@@ -1353,7 +1350,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                             "performance" => "power-saver",
                                             _ => "balanced"
                                         };
-                                        let (mutation_ok, verified, final_state, _mutation_error) = execute_transaction!(
+                                        let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                             power.set_power_profile(next),
                                             power.get_info(),
                                             |info: &PowerInfo| info.power_profile.as_deref() == Some(next),
@@ -1367,7 +1364,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                                 let _ = tx_cmd_resp.send(AppEvent::Notification("Change could not be verified.".to_string())).await;
                                             }
                                         } else {
-                                            let _ = tx_cmd_resp.send(AppEvent::Notification("Failed to set power profile.".to_string())).await;
+                                            let err_msg = mutation_error.unwrap_or_else(|| "Failed to set power profile.".to_string());
+                                            let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                                         }
 
                                         if let Ok(actual_info) = final_state {
@@ -1379,7 +1377,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         }
                         BackendCommand::ToggleWifi(target_state) => {
                             if let Some(net) = &network_backend_for_cmd {
-                                let (mutation_ok, verified, final_state, _mutation_error) = execute_transaction!(
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     net.set_wifi_enabled(target_state),
                                     net.wifi_enabled(),
                                     |state: &bool| *state == target_state,
@@ -1393,7 +1391,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                         let _ = tx_cmd_resp.send(AppEvent::Notification("Change could not be verified.".to_string())).await;
                                     }
                                 } else {
-                                    let _ = tx_cmd_resp.send(AppEvent::Notification("Failed to execute Wi-Fi command.".to_string())).await;
+                                    let err_msg = mutation_error.unwrap_or_else(|| "Failed to execute Wi-Fi command.".to_string());
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                                 }
 
                                 if let Ok(actual_state) = final_state {
@@ -1438,7 +1437,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::SetAudioDefault(id) => {
-                            let (mutation_ok, verified, final_state, _mutation_error) = execute_transaction!(
+                            let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                 audio_backend_for_cmd.set_default_sink(id),
                                 audio_backend_for_cmd.get_sinks(),
                                 |sinks: &Vec<crate::backends::AudioDevice>| {
@@ -1462,12 +1461,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                         .await;
                                 }
                             } else {
-                                let _ = tx_cmd_resp
-                                    .send(AppEvent::Notification(format!(
-                                        "Failed to set default device to {}",
-                                        id
-                                    )))
-                                    .await;
+                                let err_msg = mutation_error.unwrap_or_else(|| format!("Failed to set default device to {}", id));
+                                let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                             }
                             if let Ok(sinks) = final_state {
                                 if let Ok(sources) = audio_backend_for_cmd.get_sources().await {
@@ -1481,7 +1476,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         }
                         BackendCommand::RemoveBluetoothDevice(id) => {
                             if let Some(bt) = &bt_backend_for_cmd {
-                                let (mutation_ok, verified, final_state, _mutation_error) = execute_transaction!(
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     bt.remove_device(&id),
                                     bt.devices(),
                                     |devices: &Vec<crate::backends::BluetoothDevice>| {
@@ -1504,11 +1499,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                             .await;
                                     }
                                 } else {
-                                    let _ = tx_cmd_resp
-                                        .send(AppEvent::Notification(
-                                            "Failed to remove Bluetooth device.".to_string(),
-                                        ))
-                                        .await;
+                                    let err_msg = mutation_error.unwrap_or_else(|| "Failed to remove Bluetooth device.".to_string());
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                                 }
                                 if let Ok(devices) = final_state {
                                     let _ = tx_cmd_resp
@@ -1851,13 +1843,37 @@ mod tests {
         app.focus = Focus::Content;
         app.selected_item = 3; // "Power Off"
 
-        // Enter should set confirm dialog, NOT directly execute
+        // Space key must NOT trigger power action confirmation or execution
+        app.handle_key(press(KeyCode::Char(' ')));
+        assert!(
+            app.confirm_action.is_none(),
+            "Accidental Space key must never trigger power action"
+        );
+
+        // Enter should set confirm dialog with explicit shutdown warning
         app.handle_key(press(KeyCode::Enter));
         assert!(
             app.confirm_action.is_some(),
             "Power off must require confirmation"
         );
+        let prompt = app.confirm_action.as_ref().unwrap().0.clone();
+        assert!(
+            prompt.contains("Shut down and power off"),
+            "Expected distinct shutdown warning, got: {}",
+            prompt
+        );
         assert!(!app.should_quit, "App must not quit from power action");
+
+        // Cancel and test Reboot distinct prompt
+        app.confirm_action = None;
+        app.selected_item = 2; // Reboot
+        app.handle_key(press(KeyCode::Enter));
+        let reboot_prompt = app.confirm_action.as_ref().unwrap().0.clone();
+        assert!(
+            reboot_prompt.contains("Restart the computer"),
+            "Expected distinct reboot warning, got: {}",
+            reboot_prompt
+        );
     }
 
     #[test]
