@@ -12,6 +12,8 @@
 
 <br/>
 
+![Settings TUI Demo](assets/demo.gif)
+<br/>
 ![Settings TUI](assets/screenshot.png)
 
 <br/>
