@@ -57,6 +57,33 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         text.push(Line::from(""));
     }
 
+    let active_tunnels: Vec<_> = app.vpns.iter().filter(|v| v.active).collect();
+    let mut tunnel_badge = vec![Span::styled(
+        "  Secure Tunnels:  ",
+        Style::default().fg(Color::Cyan),
+    )];
+    if app.vpns.is_empty() {
+        tunnel_badge.push(Span::styled(
+            "none configured (WireGuard / VPN)",
+            Style::default().fg(Color::DarkGray),
+        ));
+    } else if active_tunnels.is_empty() {
+        tunnel_badge.push(Span::styled(
+            format!("{} profile(s), none active", app.vpns.len()),
+            Style::default().fg(Color::Yellow),
+        ));
+    } else {
+        let names: Vec<String> = active_tunnels.iter().map(|v| v.name.clone()).collect();
+        tunnel_badge.push(Span::styled(
+            format!("{} active: {}", names.len(), names.join(", ")),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+    text.push(Line::from(tunnel_badge));
+    text.push(Line::from(""));
+
     let is_selected = content_active && app.selected_item == 0;
 
     let wifi_desc = "Turn Wi-Fi radio on or off.";
