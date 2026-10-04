@@ -75,7 +75,8 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         )));
     } else {
         for (i, m) in app.monitors.iter().enumerate() {
-            let is_selected = content_active && (i + monitor_offset) == app.selected_item;
+            let res_selected = content_active && (i * 2 + monitor_offset) == app.selected_item;
+            let scale_selected = content_active && (i * 2 + 1 + monitor_offset) == app.selected_item;
 
             let mut title = m.name.clone();
             if m.primary {
@@ -92,16 +93,16 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
                 current_res
             };
 
-            let control = widgets::value_selector(&modes_str, is_selected);
-            let row_lines = widgets::setting_row(&title, &m.description, control, is_selected, 60);
+            let control = widgets::value_selector(&modes_str, res_selected);
+            let row_lines = widgets::setting_row(&title, &m.description, control, res_selected, 60);
 
             text.extend(row_lines);
 
             let scale_lines = widgets::setting_row(
                 "Scale",
                 "Display scaling factor",
-                widgets::value_read_only(&format!("{:.2}", m.scale), false),
-                false,
+                widgets::value_selector(&format!("< {:.2} >", m.scale), scale_selected),
+                scale_selected,
                 60,
             );
             text.extend(scale_lines);

@@ -38,6 +38,25 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         lines.extend(prof_lines);
         lines.push(Line::from(""));
 
+        if let Some(limit) = info.charge_limit {
+            let limit_desc = if limit < 100 {
+                "Conservation mode active (limits charge)"
+            } else {
+                "Maximum charge allowed (Standard mode)"
+            };
+            let is_limit_selected = content_active && app.selected_item == 1;
+            let limit_control = widgets::value_selector(&format!("{}%", limit), is_limit_selected);
+            let limit_lines = widgets::setting_row(
+                "Battery Charge Limit",
+                limit_desc,
+                limit_control,
+                is_limit_selected,
+                60,
+            );
+            lines.extend(limit_lines);
+            lines.push(Line::from(""));
+        }
+
         lines.push(Line::from(Span::styled(
             "Battery Information",
             Style::default()

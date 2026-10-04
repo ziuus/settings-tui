@@ -79,6 +79,23 @@ impl PowerBackend for UPowerBackend {
             battery_vendor = device.vendor().await.ok().filter(|s| !s.is_empty());
         }
 
+        let mut charge_limit = None;
+        if let Ok(paths) = std::fs::read_dir("/sys/class/power_supply/") {
+            for path in paths.flatten() {
+                if let Some(name) = path.file_name().to_str() {
+                    if name.starts_with("BAT") {
+                        let mut limit_path = path.path();
+                        limit_path.push("charge_control_end_threshold");
+                        if let Ok(limit_str) = std::fs::read_to_string(&limit_path) {
+                            if let Ok(limit) = limit_str.trim().parse::<u8>() {
+                                charge_limit = Some(limit);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let mut power_profile = None;
         if let Ok(profiles) = PowerProfilesProxy::new(&self.connection).await {
             if let Ok(profile) = profiles.active_profile().await {
@@ -102,9 +119,42 @@ impl PowerBackend for UPowerBackend {
             time_to_full_secs,
             battery_model,
             battery_vendor,
+            charge_limit,
         })
     }
 
+    async fn set_charge_limit(&self, limit: u8) -> Result<()> {
+        // Try to find the battery
+        let mut bat_path = None;
+        if let Ok(paths) = std::fs::read_dir("/sys/class/power_supply/") {
+            for path in paths.flatten() {
+                if let Some(name) = path.file_name().to_str() {
+                    if name.starts_with("BAT") {
+                        let mut p = path.path();
+                        p.push("charge_control_end_threshold");
+                        if p.exists() {
+                            bat_path = Some(p);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(p) = bat_path {
+            // We need pkexec or Polkit because sysfs is root-owned
+            let status = std::process::Command::new("pkexec")
+                .arg("sh")
+                .arg("-c")
+                .arg(format!("echo {} > {}", limit, p.display()))
+                .status()?;
+            if !status.success() {
+                return Err(anyhow::anyhow!("Failed to set charge limit (authentication failed or permission denied)"));
+            }
+        } else {
+            return Err(anyhow::anyhow!("Battery charge limit is not supported on this device"));
+        }
+        Ok(())
+    }
     async fn set_power_profile(&self, profile: &str) -> Result<()> {
         let profiles = PowerProfilesProxy::new(&self.connection).await?;
         profiles.set_active_profile(profile).await?;

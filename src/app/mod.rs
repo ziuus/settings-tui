@@ -81,10 +81,12 @@ pub enum BackendCommand {
     SetAudioVolume(u32, f64),
     ToggleColorScheme,
     CyclePowerProfile,
+    SetChargeLimit(u8),
     ToggleWifi(bool),
     ToggleFlightMode(bool),
     ToggleHotspot(bool),
     SetDisplayResolution(String, i32, i32, f64),
+    SetDisplayScale(String, f64),
     SetDisplayBrightness(u32),
     ConnectNetwork(crate::backends::NetworkId, bool),
     ConnectNetworkWithPassword(crate::backends::NetworkId, String),
@@ -1220,9 +1222,20 @@ impl App {
                                     let _ = tx.try_send(BackendCommand::CycleIconTheme(true));
                                 }
                             }
-                        } else if cat == "Power" && self.selected_item == 0 {
-                            if let Some(tx) = &self.cmd_tx {
-                                let _ = tx.try_send(BackendCommand::CyclePowerProfile);
+                        } else if cat == "Power" {
+                            if self.selected_item == 0 {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CyclePowerProfile);
+                                }
+                            } else if self.selected_item == 1 {
+                                if let Some(info) = &self.power_info {
+                                    if let Some(limit) = info.charge_limit {
+                                        let target = if limit < 100 { 100 } else { 80 };
+                                        if let Some(tx) = &self.cmd_tx {
+                                            let _ = tx.try_send(BackendCommand::SetChargeLimit(target));
+                                        }
+                                    }
+                                }
                             }
                         } else if cat == "Applications"
                             && self.selected_item < self.applications.len()
@@ -1391,10 +1404,21 @@ impl App {
                             } else {
                                 let offset = (if has_brightness { 1 } else { 0 })
                                     + (if has_nl { 1 } else { 0 });
-                                let mon_idx = self.selected_item.saturating_sub(offset);
+                                let sel_offset = self.selected_item.saturating_sub(offset);
+                                let mon_idx = sel_offset / 2;
+                                let is_scale = (sel_offset % 2) != 0;
                                 if mon_idx < self.monitors.len() {
                                     let m = &self.monitors[mon_idx];
-                                    if !m.supported_modes.is_empty() {
+                                    if is_scale {
+                                        let new_scale = if increase {
+                                            (m.scale + 0.25).min(3.0)
+                                        } else {
+                                            (m.scale - 0.25).max(0.5)
+                                        };
+                                        if let Some(tx) = &self.cmd_tx {
+                                            let _ = tx.try_send(BackendCommand::SetDisplayScale(m.name.clone(), new_scale));
+                                        }
+                                    } else if !m.supported_modes.is_empty() {
                                         let _current_res = format!(
                                             "{}x{}@{:.2}Hz",
                                             m.width, m.height, m.refresh_rate
@@ -1807,6 +1831,33 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 }
                             }
                         }
+                        BackendCommand::SetDisplayScale(name, scale) => {
+                            if let Some(disp) = &display_backend_for_cmd {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    disp.set_scale(&name, scale),
+                                    disp.get_monitors(),
+                                    |monitors: &Vec<crate::backends::Monitor>| {
+                                        if let Some(m) = monitors.iter().find(|m| m.name == name) {
+                                            (m.scale - scale).abs() < 0.01
+                                        } else {
+                                            false
+                                        }
+                                    },
+                                    10, 100
+                                );
+                                if mutation_ok {
+                                    if !verified {
+                                        let _ = tx_cmd_resp.send(AppEvent::Notification("Scale change could not be verified.".to_string())).await;
+                                    }
+                                } else {
+                                    let err_msg = mutation_error.unwrap_or_else(|| "Failed to set display scale.".to_string());
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+                                if let Ok(actual_mons) = final_state {
+                                    let _ = tx_cmd_resp.send(AppEvent::UpdateMonitors(actual_mons)).await;
+                                }
+                            }
+                        }
                         BackendCommand::SetDisplayResolution(name, width, height, refresh) => {
                             if let Some(disp) = &display_backend_for_cmd {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
@@ -1867,6 +1918,29 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                     if let Ok(actual_info) = final_state {
                                         let _ = tx_cmd_resp.send(AppEvent::UpdateAppearance(actual_info)).await;
                                     }
+                                }
+                            }
+                        }
+                        BackendCommand::SetChargeLimit(limit) => {
+                            if let Some(pow) = &power_backend_for_cmd {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    pow.set_charge_limit(limit),
+                                    pow.get_info(),
+                                    |info: &crate::backends::PowerInfo| info.charge_limit == Some(limit),
+                                    10, 50
+                                );
+                                if mutation_ok {
+                                    if verified {
+                                        let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Battery charge limit set to {}%", limit))).await;
+                                    } else {
+                                        let _ = tx_cmd_resp.send(AppEvent::Notification("Change could not be verified (might require reboot or replug).".to_string())).await;
+                                    }
+                                } else {
+                                    let err_msg = mutation_error.unwrap_or_else(|| "Failed to set charge limit.".to_string());
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+                                if let Ok(actual_info) = final_state {
+                                    let _ = tx_cmd_resp.send(AppEvent::UpdatePower(actual_info)).await;
                                 }
                             }
                         }
@@ -3375,6 +3449,7 @@ mod tests {
             time_to_full_secs: None,
             battery_model: Some("L18M4PF5".to_string()),
             battery_vendor: Some("SMP".to_string()),
+            charge_limit: None,
         });
 
         let lines = crate::ui::pages::power::render(&app, true);

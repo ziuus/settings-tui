@@ -211,12 +211,14 @@ pub struct PowerInfo {
     pub time_to_full_secs: Option<i64>,
     pub battery_model: Option<String>,
     pub battery_vendor: Option<String>,
+    pub charge_limit: Option<u8>,
 }
 
 #[async_trait]
 pub trait PowerBackend: Send + Sync {
     async fn get_info(&self) -> Result<PowerInfo>;
     async fn set_power_profile(&self, profile: &str) -> Result<()>;
+    async fn set_charge_limit(&self, limit: u8) -> Result<()>;
 }
 
 // Core definitions for Services
@@ -255,6 +257,7 @@ pub struct Monitor {
 #[async_trait]
 pub trait DisplayBackend: Send + Sync {
     async fn get_monitors(&self) -> Result<Vec<Monitor>>;
+    async fn set_scale(&self, name: &str, scale: f64) -> Result<()>;
     async fn set_resolution(&self, name: &str, width: i32, height: i32, refresh: f64)
         -> Result<()>;
     async fn get_brightness(&self) -> Result<Option<u32>>;

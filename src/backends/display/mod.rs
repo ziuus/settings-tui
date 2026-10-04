@@ -88,6 +88,28 @@ impl DisplayBackend for HyprlandBackend {
         }
     }
 
+    async fn set_scale(&self, name: &str, scale: f64) -> Result<()> {
+        let res_str = if let Ok(monitors) = self.get_monitors().await {
+            if let Some(m) = monitors.into_iter().find(|m| m.name == name) {
+                format!("{}x{}@{}", m.width, m.height, m.refresh_rate)
+            } else {
+                return Err(anyhow::anyhow!("Monitor not found"));
+            }
+        } else {
+            return Err(anyhow::anyhow!("Failed to read monitors"));
+        };
+        let status = std::process::Command::new("hyprctl")
+            .arg("keyword")
+            .arg("monitor")
+            .arg(format!("{},{},auto,{}", name, res_str, scale))
+            .status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("hyprctl failed to set scale"))
+        }
+    }
+
     async fn get_brightness(&self) -> Result<Option<u32>> {
         Ok(read_system_brightness())
     }
@@ -127,7 +149,11 @@ impl DisplayBackend for GenericDisplayBackend {
         _height: i32,
         _refresh: f64,
     ) -> Result<()> {
-        Err(anyhow!("Resolution switching requires Hyprland compositor"))
+        Err(anyhow::anyhow!("Resolution switching requires Hyprland compositor"))
+    }
+
+    async fn set_scale(&self, _name: &str, _scale: f64) -> Result<()> {
+        Err(anyhow::anyhow!("Display scaling is not supported on this generic backend."))
     }
 
     async fn get_brightness(&self) -> Result<Option<u32>> {
