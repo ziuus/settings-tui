@@ -361,4 +361,46 @@ impl NetworkBackend for NetworkManagerBackend {
             Err(anyhow::anyhow!("{}", msg))
         }
     }
+    async fn flight_mode_enabled(&self) -> Result<bool> {
+        let wifi = std::process::Command::new("nmcli")
+            .args(["radio", "wifi"])
+            .output()?;
+        let wifi_off = String::from_utf8_lossy(&wifi.stdout).trim() == "disabled";
+        Ok(wifi_off) // rough approx for now.
+    }
+
+    async fn set_flight_mode_enabled(&self, enabled: bool) -> Result<()> {
+        let action = if enabled { "off" } else { "on" };
+        let _ = std::process::Command::new("nmcli")
+            .args(["radio", "all", action])
+            .output()?;
+        let block_action = if enabled { "block" } else { "unblock" };
+        let _ = std::process::Command::new("rfkill")
+            .args([block_action, "all"])
+            .output()?;
+        Ok(())
+    }
+
+    async fn hotspot_enabled(&self) -> Result<bool> {
+        let output = std::process::Command::new("nmcli")
+            .args(["connection", "show", "--active"])
+            .output()?;
+        let out = String::from_utf8_lossy(&output.stdout);
+        // Usually nmcli connection shows "Hotspot" or type "wifi" with mode "ap"
+        // Let's just look for "Hotspot" for now.
+        Ok(out.contains("Hotspot"))
+    }
+
+    async fn set_hotspot_enabled(&self, enabled: bool) -> Result<()> {
+        if enabled {
+            let _ = std::process::Command::new("nmcli")
+                .args(["device", "wifi", "hotspot", "ifname", "wlan0", "ssid", "LinuxHotspot", "password", "12345678"])
+                .output()?;
+        } else {
+            let _ = std::process::Command::new("nmcli")
+                .args(["connection", "down", "Hotspot"])
+                .output()?;
+        }
+        Ok(())
+    }
 }

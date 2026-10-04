@@ -58,12 +58,23 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
     }
 
     let is_selected = content_active && app.selected_item == 0;
-
-    let wifi_desc = "Turn Wi-Fi radio on or off.";
     let control = widgets::toggle(app.wifi_enabled, is_selected);
-    let wifi_lines = widgets::setting_row("Wi-Fi Radio", wifi_desc, control, is_selected, 60);
-
+    let wifi_lines = widgets::setting_row("Wi-Fi Radio", "Turn Wi-Fi radio on or off", control, is_selected, 60);
     text.extend(wifi_lines);
+    text.push(Line::from(""));
+
+    let is_flight_selected = content_active && app.selected_item == 1;
+    let flight_enabled = app.flight_mode_enabled.unwrap_or(false);
+    let control = widgets::toggle(flight_enabled, is_flight_selected);
+    let flight_lines = widgets::setting_row("Flight Mode", "Disable all wireless communications", control, is_flight_selected, 60);
+    text.extend(flight_lines);
+    text.push(Line::from(""));
+
+    let is_hotspot_selected = content_active && app.selected_item == 2;
+    let hotspot_enabled = app.hotspot_enabled.unwrap_or(false);
+    let control = widgets::toggle(hotspot_enabled, is_hotspot_selected);
+    let hotspot_lines = widgets::setting_row("Wi-Fi Hotspot", "Share your internet connection with other devices", control, is_hotspot_selected, 60);
+    text.extend(hotspot_lines);
     text.push(Line::from(""));
 
     if app.networks.is_empty() && app.wifi_enabled {
@@ -84,13 +95,13 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         text.push(Line::from(""));
 
         let page_size = 15;
-        let selected_net_idx = app.selected_item.saturating_sub(1);
+        let selected_net_idx = app.selected_item.saturating_sub(3);
         let start_idx = selected_net_idx.saturating_sub(page_size / 2);
         let end_idx = (start_idx + page_size).min(app.networks.len());
 
         for i in start_idx..end_idx {
             let net = &app.networks[i];
-            let is_net_selected = content_active && app.selected_item == i + 1;
+            let is_net_selected = content_active && app.selected_item == i + 3;
 
             let band_str = if net.frequency_mhz >= 4900 {
                 "5 GHz"
@@ -158,9 +169,9 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         text.push(Line::from(""));
 
         let wifi_offset = if app.wifi_enabled {
-            app.networks.len() + 1
+            app.networks.len() + 3
         } else {
-            1
+            3
         };
 
         for (idx, vpn) in app.vpns.iter().enumerate() {

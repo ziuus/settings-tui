@@ -93,6 +93,10 @@ pub trait NetworkBackend: Send + Sync {
     async fn rescan(&self) -> Result<()>;
     async fn get_vpns(&self) -> Result<Vec<VpnConnection>>;
     async fn toggle_vpn(&self, uuid: &str, activate: bool) -> Result<()>;
+    async fn flight_mode_enabled(&self) -> Result<bool>;
+    async fn set_flight_mode_enabled(&self, enabled: bool) -> Result<()>;
+    async fn hotspot_enabled(&self) -> Result<bool>;
+    async fn set_hotspot_enabled(&self, enabled: bool) -> Result<()>;
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

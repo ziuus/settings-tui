@@ -65,6 +65,8 @@ pub enum AppEvent {
     UpdateCapabilities(Box<crate::platform::PlatformCapabilities>),
     UpdateBrightness(Option<u32>),
     UpdateNightLight(Option<bool>),
+    UpdateFlightMode(Option<bool>),
+    UpdateHotspot(Option<bool>),
     UpdateActiveConnection(Option<crate::backends::ActiveConnectionInfo>),
     UpdateVpns(Vec<VpnConnection>),
     Notification(String),
@@ -80,6 +82,8 @@ pub enum BackendCommand {
     ToggleColorScheme,
     CyclePowerProfile,
     ToggleWifi(bool),
+    ToggleFlightMode(bool),
+    ToggleHotspot(bool),
     SetDisplayResolution(String, i32, i32, f64),
     SetDisplayBrightness(u32),
     ConnectNetwork(crate::backends::NetworkId, bool),
@@ -133,6 +137,8 @@ pub struct App {
     pub categories: Vec<String>,
     pub system_info: Option<SystemInfo>,
     pub wifi_enabled: bool,
+    pub flight_mode_enabled: Option<bool>,
+    pub hotspot_enabled: Option<bool>,
     pub networks: Vec<crate::backends::Network>,
     pub bluetooth_devices: Vec<crate::backends::BluetoothDevice>,
     pub bluetooth_powered: bool,
@@ -184,6 +190,8 @@ impl App {
             ],
             system_info: None,
             wifi_enabled: true,
+            flight_mode_enabled: None,
+            hotspot_enabled: None,
             networks: vec![],
             confirm_action: None,
             password_modal: None,
@@ -1078,8 +1086,20 @@ impl App {
                                     let _ =
                                         tx.try_send(BackendCommand::ToggleWifi(!self.wifi_enabled));
                                 }
-                            } else if self.selected_item <= self.networks.len() {
-                                let net = &self.networks[self.selected_item - 1];
+                            } else if self.selected_item == 1 {
+                                if let Some(enabled) = self.flight_mode_enabled {
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ = tx.try_send(BackendCommand::ToggleFlightMode(!enabled));
+                                    }
+                                }
+                            } else if self.selected_item == 2 {
+                                if let Some(enabled) = self.hotspot_enabled {
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ = tx.try_send(BackendCommand::ToggleHotspot(!enabled));
+                                    }
+                                }
+                            } else if self.selected_item >= 3 && self.selected_item - 3 < self.networks.len() {
+                                let net = &self.networks[self.selected_item - 3];
                                 if net.connected {
                                     if let Some(tx) = &self.cmd_tx {
                                         let _ = tx.try_send(BackendCommand::ConnectNetwork(
@@ -1105,9 +1125,9 @@ impl App {
                             } else {
                                 // VPN rows come after wifi rows
                                 let vpn_offset = if self.wifi_enabled {
-                                    self.networks.len() + 1
+                                    self.networks.len() + 3
                                 } else {
-                                    1
+                                    3
                                 };
                                 let vpn_idx = self.selected_item.saturating_sub(vpn_offset);
                                 if vpn_idx < self.vpns.len() {
@@ -1277,16 +1297,16 @@ impl App {
                             && self.selected_item > 0
                             && self.selected_item <= self.bluetooth_devices.len()
                         {
-                            let dev = &self.bluetooth_devices[self.selected_item - 1];
+                            let dev = &self.bluetooth_devices[self.selected_item - 3];
                             self.confirm_action = Some((
                                 format!("Forget Bluetooth device '{}'?", dev.name),
                                 BackendCommand::RemoveBluetoothDevice(dev.id.clone()),
                             ));
                         } else if cat == "Network"
-                            && self.selected_item > 0
-                            && self.selected_item <= self.networks.len()
+                            && self.selected_item >= 3
+                            && self.selected_item - 3 < self.networks.len()
                         {
-                            let net = &self.networks[self.selected_item - 1];
+                            let net = &self.networks[self.selected_item - 3];
                             self.confirm_action = Some((
                                 format!("Forget Wi-Fi network profile '{}'?", net.name),
                                 BackendCommand::ForgetNetwork(net.id.clone()),
@@ -1882,6 +1902,56 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                             let _ = tx_cmd_resp.send(AppEvent::UpdatePower(actual_info)).await;
                                         }
                                     }
+                                }
+                            }
+                        }
+                        BackendCommand::ToggleFlightMode(target_state) => {
+                            if let Some(net) = &network_backend_for_cmd {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    net.set_flight_mode_enabled(target_state),
+                                    net.flight_mode_enabled(),
+                                    |state: &bool| *state == target_state,
+                                    10, 50 // up to 500ms
+                                );
+
+                                if mutation_ok {
+                                    if verified {
+                                        let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Flight mode {}", if target_state { "enabled" } else { "disabled" }))).await;
+                                    } else {
+                                        let _ = tx_cmd_resp.send(AppEvent::Notification("Change could not be verified.".to_string())).await;
+                                    }
+                                } else {
+                                    let err_msg = mutation_error.unwrap_or_else(|| "Failed to execute flight mode command.".to_string());
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+
+                                if let Ok(actual_state) = final_state {
+                                    let _ = tx_cmd_resp.send(AppEvent::UpdateFlightMode(Some(actual_state))).await;
+                                }
+                            }
+                        }
+                        BackendCommand::ToggleHotspot(target_state) => {
+                            if let Some(net) = &network_backend_for_cmd {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    net.set_hotspot_enabled(target_state),
+                                    net.hotspot_enabled(),
+                                    |state: &bool| *state == target_state,
+                                    15, 100 // hotspots take time
+                                );
+
+                                if mutation_ok {
+                                    if verified {
+                                        let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Hotspot {}", if target_state { "enabled" } else { "disabled" }))).await;
+                                    } else {
+                                        let _ = tx_cmd_resp.send(AppEvent::Notification("Change could not be verified.".to_string())).await;
+                                    }
+                                } else {
+                                    let err_msg = mutation_error.unwrap_or_else(|| "Failed to execute hotspot command.".to_string());
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+
+                                if let Ok(actual_state) = final_state {
+                                    let _ = tx_cmd_resp.send(AppEvent::UpdateHotspot(Some(actual_state))).await;
                                 }
                             }
                         }
@@ -2641,6 +2711,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                     }
                     if let Some(net) = &net_backend {
                         if let (Ok(enabled), Ok(nets)) = (net.wifi_enabled().await, net.networks().await) {
+                        if let Ok(fm) = net.flight_mode_enabled().await {
+                            let _ = tx_backend.send(AppEvent::UpdateFlightMode(Some(fm))).await;
+                        }
+                        if let Ok(hs) = net.hotspot_enabled().await {
+                            let _ = tx_backend.send(AppEvent::UpdateHotspot(Some(hs))).await;
+                        }
                             let _ = tx_backend.send(AppEvent::UpdateNetworks(enabled, nets)).await;
                         }
                         if let Ok(conn) = net.get_active_connection().await {
@@ -2739,6 +2815,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                 AppEvent::UpdateMonitors(monitors) => app_lock.monitors = monitors,
                 AppEvent::UpdateBrightness(b) => app_lock.display_brightness = b,
                 AppEvent::UpdateNightLight(nl) => app_lock.night_light_enabled = nl,
+                AppEvent::UpdateFlightMode(fm) => app_lock.flight_mode_enabled = fm,
+                AppEvent::UpdateHotspot(hs) => app_lock.hotspot_enabled = hs,
                 AppEvent::UpdateActiveConnection(conn) => app_lock.active_connection = conn,
                 AppEvent::UpdateAppearance(info) => app_lock.appearance_info = Some(info),
                 AppEvent::UpdateApplications(apps, defs) => {
@@ -3259,7 +3337,7 @@ mod tests {
         });
 
         // selected_item = 1 corresponds to first network (item 0 is Wi-Fi Radio)
-        app.selected_item = 1;
+        app.selected_item = 3;
 
         // Press Backspace or Delete
         app.handle_key(press(KeyCode::Delete));
@@ -3364,7 +3442,7 @@ mod tests {
             frequency_mhz: 2437,
         });
 
-        app.selected_item = 1;
+        app.selected_item = 3;
 
         let (tx, mut rx) = mpsc::channel(10);
         app.cmd_tx = Some(tx);
@@ -3423,7 +3501,7 @@ mod tests {
             frequency_mhz: 5200,
         });
 
-        app.selected_item = 1;
+        app.selected_item = 3;
 
         let (tx, mut rx) = mpsc::channel(10);
         app.cmd_tx = Some(tx);

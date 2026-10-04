@@ -277,7 +277,7 @@ fn apply_night_light(enabled: bool, temperature: u32) -> Result<()> {
 
     // Try hyprsunset
     let _ = Command::new("hyprctl").arg("hyprsunset").output();
-    
+
     if Command::new("which").arg("hyprsunset").output().is_ok() {
         Command::new("hyprsunset")
             .arg("-t")
