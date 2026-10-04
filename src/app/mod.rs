@@ -64,6 +64,7 @@ pub enum AppEvent {
     UpdateInputSettings(InputSettings),
     UpdateCapabilities(Box<crate::platform::PlatformCapabilities>),
     UpdateBrightness(Option<u32>),
+    UpdateNightLight(Option<bool>),
     UpdateActiveConnection(Option<crate::backends::ActiveConnectionInfo>),
     UpdateVpns(Vec<VpnConnection>),
     Notification(String),
@@ -97,6 +98,7 @@ pub enum BackendCommand {
     ToggleVpn(String, bool), // uuid, activate
     SetHostname(String),
     CycleGtkTheme(bool), // true = next, false = prev
+    ToggleNightLight(bool),
     CycleIconTheme(bool),
 }
 
@@ -141,6 +143,7 @@ pub struct App {
     pub services: Vec<crate::backends::ServiceInfo>,
     pub monitors: Vec<crate::backends::Monitor>,
     pub display_brightness: Option<u32>,
+    pub night_light_enabled: Option<bool>,
     pub active_connection: Option<crate::backends::ActiveConnectionInfo>,
     pub appearance_info: Option<crate::backends::AppearanceInfo>,
     pub applications: Vec<crate::backends::AppEntry>,
@@ -197,6 +200,7 @@ impl App {
             services: vec![],
             monitors: vec![],
             display_brightness: None,
+            night_light_enabled: None,
             active_connection: None,
             appearance_info: None,
             applications: vec![],
@@ -1170,6 +1174,18 @@ impl App {
                                     }
                                 }
                             }
+                        } else if cat == "Display" {
+                            let has_brightness = self.display_brightness.is_some();
+                            let nl_idx = if has_brightness { 1 } else { 0 };
+                            let has_nl = self.night_light_enabled.is_some();
+                            if has_nl && self.selected_item == nl_idx {
+                                if let Some(enabled) = self.night_light_enabled {
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ =
+                                            tx.try_send(BackendCommand::ToggleNightLight(!enabled));
+                                    }
+                                }
+                            }
                         } else if cat == "Appearance" {
                             if self.selected_item == 0 {
                                 if let Some(tx) = &self.cmd_tx {
@@ -1329,6 +1345,9 @@ impl App {
                             }
                         } else if cat == "Display" {
                             let has_brightness = self.display_brightness.is_some();
+                            let nl_idx = if has_brightness { 1 } else { 0 };
+                            let has_nl = self.night_light_enabled.is_some();
+
                             if has_brightness && self.selected_item == 0 {
                                 if let Some(cur) = self.display_brightness {
                                     let new_val = if increase {
@@ -1342,12 +1361,17 @@ impl App {
                                         ));
                                     }
                                 }
+                            } else if has_nl && self.selected_item == nl_idx {
+                                if let Some(enabled) = self.night_light_enabled {
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ =
+                                            tx.try_send(BackendCommand::ToggleNightLight(!enabled));
+                                    }
+                                }
                             } else {
-                                let mon_idx = if has_brightness {
-                                    self.selected_item.saturating_sub(1)
-                                } else {
-                                    self.selected_item
-                                };
+                                let offset = (if has_brightness { 1 } else { 0 })
+                                    + (if has_nl { 1 } else { 0 });
+                                let mon_idx = self.selected_item.saturating_sub(offset);
                                 if mon_idx < self.monitors.len() {
                                     let m = &self.monitors[mon_idx];
                                     if !m.supported_modes.is_empty() {
@@ -2177,6 +2201,43 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 }
                             }
                         }
+                        BackendCommand::ToggleNightLight(target) => {
+                            if let Some(disp) = &display_backend_for_cmd {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    disp.set_night_light_enabled(target, 4500),
+                                    disp.is_night_light_enabled(),
+                                    |nl: &bool| *nl == target,
+                                    10,
+                                    100
+                                );
+
+                                if mutation_ok {
+                                    if verified {
+                                        let state_str = if target { "On" } else { "Off" };
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(format!(
+                                                "Night Light {}",
+                                                state_str
+                                            )))
+                                            .await;
+                                    } else {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(
+                                                "Failed to verify Night Light change".to_string(),
+                                            ))
+                                            .await;
+                                    }
+                                } else if let Some(err) = mutation_error {
+                                    let err_msg =
+                                        format!("Failed to set Night Light: {}", err);
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+
+                                if let Ok(nl) = final_state {
+                                    let _ = tx_cmd_resp.send(AppEvent::UpdateNightLight(Some(nl))).await;
+                                }
+                            }
+                        }
                         BackendCommand::ToggleNTP(target) => {
                             let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                 sys_backend_for_cmd.set_ntp(target),
@@ -2617,6 +2678,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         if let Ok(b) = disp.get_brightness().await {
                             let _ = tx_backend.send(AppEvent::UpdateBrightness(b)).await;
                         }
+                        if let Ok(nl) = disp.is_night_light_enabled().await {
+                            let _ = tx_backend.send(AppEvent::UpdateNightLight(Some(nl))).await;
+                        }
                     }
                     if let Some(appr) = &appearance_backend {
                         if let Ok(info) = appr.get_info().await {
@@ -2674,6 +2738,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                 AppEvent::UpdateServices(services) => app_lock.services = services,
                 AppEvent::UpdateMonitors(monitors) => app_lock.monitors = monitors,
                 AppEvent::UpdateBrightness(b) => app_lock.display_brightness = b,
+                AppEvent::UpdateNightLight(nl) => app_lock.night_light_enabled = nl,
                 AppEvent::UpdateActiveConnection(conn) => app_lock.active_connection = conn,
                 AppEvent::UpdateAppearance(info) => app_lock.appearance_info = Some(info),
                 AppEvent::UpdateApplications(apps, defs) => {

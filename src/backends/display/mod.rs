@@ -95,6 +95,14 @@ impl DisplayBackend for HyprlandBackend {
     async fn set_brightness(&self, percent: u32) -> Result<()> {
         write_system_brightness(percent)
     }
+
+    async fn is_night_light_enabled(&self) -> Result<bool> {
+        is_night_light_active()
+    }
+
+    async fn set_night_light_enabled(&self, enabled: bool, temperature: u32) -> Result<()> {
+        apply_night_light(enabled, temperature)
+    }
 }
 
 #[derive(Default)]
@@ -128,6 +136,14 @@ impl DisplayBackend for GenericDisplayBackend {
 
     async fn set_brightness(&self, percent: u32) -> Result<()> {
         write_system_brightness(percent)
+    }
+
+    async fn is_night_light_enabled(&self) -> Result<bool> {
+        is_night_light_active()
+    }
+
+    async fn set_night_light_enabled(&self, enabled: bool, temperature: u32) -> Result<()> {
+        apply_night_light(enabled, temperature)
     }
 }
 
@@ -195,4 +211,88 @@ fn write_system_brightness(percent: u32) -> Result<()> {
             .trim();
         Err(anyhow!("{}", msg))
     }
+}
+
+fn is_night_light_active() -> Result<bool> {
+    // 1. Try hyprsunset (it might not have a simple query, so we can check ps)
+    if let Ok(output) = Command::new("pidof").arg("hyprsunset").output() {
+        if output.status.success() && !output.stdout.is_empty() {
+            return Ok(true);
+        }
+    }
+    // 2. Try wlsunset
+    if let Ok(output) = Command::new("pidof").arg("wlsunset").output() {
+        if output.status.success() && !output.stdout.is_empty() {
+            return Ok(true);
+        }
+    }
+
+    // 3. Try GNOME gsettings
+    if let Ok(output) = Command::new("gsettings")
+        .arg("get")
+        .arg("org.gnome.settings-daemon.plugins.color")
+        .arg("night-light-enabled")
+        .output()
+    {
+        if output.status.success() {
+            let res = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if res == "true" {
+                return Ok(true);
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+fn apply_night_light(enabled: bool, temperature: u32) -> Result<()> {
+    // Kill existing processes to reset state
+    let _ = Command::new("killall").arg("hyprsunset").output();
+    let _ = Command::new("killall").arg("wlsunset").output();
+
+    if !enabled {
+        // GNOME
+        let _ = Command::new("gsettings")
+            .arg("set")
+            .arg("org.gnome.settings-daemon.plugins.color")
+            .arg("night-light-enabled")
+            .arg("false")
+            .output();
+        return Ok(());
+    }
+
+    // GNOME
+    let _ = Command::new("gsettings")
+        .arg("set")
+        .arg("org.gnome.settings-daemon.plugins.color")
+        .arg("night-light-enabled")
+        .arg("true")
+        .output();
+    let _ = Command::new("gsettings")
+        .arg("set")
+        .arg("org.gnome.settings-daemon.plugins.color")
+        .arg("night-light-temperature")
+        .arg(temperature.to_string())
+        .output();
+
+    // Try hyprsunset
+    let _ = Command::new("hyprctl").arg("hyprsunset").output();
+    
+    if Command::new("which").arg("hyprsunset").output().is_ok() {
+        Command::new("hyprsunset")
+            .arg("-t")
+            .arg(temperature.to_string())
+            .spawn()?;
+        return Ok(());
+    }
+
+    if Command::new("which").arg("wlsunset").output().is_ok() {
+        Command::new("wlsunset")
+            .arg("-t")
+            .arg(temperature.to_string())
+            .spawn()?;
+        return Ok(());
+    }
+
+    Ok(())
 }

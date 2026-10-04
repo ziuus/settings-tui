@@ -255,6 +255,8 @@ pub trait DisplayBackend: Send + Sync {
         -> Result<()>;
     async fn get_brightness(&self) -> Result<Option<u32>>;
     async fn set_brightness(&self, percent: u32) -> Result<()>;
+    async fn is_night_light_enabled(&self) -> Result<bool>;
+    async fn set_night_light_enabled(&self, enabled: bool, temperature: u32) -> Result<()>;
 }
 
 // Core definitions for Appearance
