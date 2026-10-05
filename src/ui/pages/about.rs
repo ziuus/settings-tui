@@ -1,3 +1,4 @@
+#![allow(clippy::vec_init_then_push)]
 use crate::app::App;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};

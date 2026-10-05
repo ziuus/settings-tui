@@ -127,10 +127,8 @@ impl PowerBackend for UPowerBackend {
                 let l = line.trim();
                 if l.starts_with("HandlePowerKey=") {
                     power_button_action = l.replace("HandlePowerKey=", "");
-                } else if l.starts_with("#HandlePowerKey=") {
-                    if power_button_action == "poweroff" {
-                        power_button_action = l.replace("#HandlePowerKey=", "");
-                    }
+                } else if l.starts_with("#HandlePowerKey=") && power_button_action == "poweroff" {
+                    power_button_action = l.replace("#HandlePowerKey=", "");
                 }
             }
         }
@@ -141,10 +139,8 @@ impl PowerBackend for UPowerBackend {
                 let l = line.trim();
                 if l.starts_with("HandleLidSwitch=") {
                     lid_action = l.replace("HandleLidSwitch=", "");
-                } else if l.starts_with("#HandleLidSwitch=") {
-                    if lid_action == "suspend" {
-                        lid_action = l.replace("#HandleLidSwitch=", "");
-                    }
+                } else if l.starts_with("#HandleLidSwitch=") && lid_action == "suspend" {
+                    lid_action = l.replace("#HandleLidSwitch=", "");
                 }
             }
         }

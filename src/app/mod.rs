@@ -2181,7 +2181,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         BackendCommand::CyclePowerButtonAction(forward) => {
                             if let Some(pwr) = &power_backend_for_cmd {
                                 if let Ok(info) = pwr.get_info().await {
-                                    let actions = vec!["ignore", "poweroff", "suspend", "hibernate", "interactive"];
+                                    let actions = ["ignore", "poweroff", "suspend", "hibernate", "interactive"];
                                     let current_idx = actions.iter().position(|a| a == &info.power_button_action).unwrap_or(1);
                                     let next_idx = if forward {
                                         (current_idx + 1) % actions.len()
@@ -2228,7 +2228,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         BackendCommand::CycleLidAction(forward) => {
                             if let Some(pwr) = &power_backend_for_cmd {
                                 if let Ok(info) = pwr.get_info().await {
-                                    let actions = vec!["ignore", "suspend", "hibernate"];
+                                    let actions = ["ignore", "suspend", "hibernate"];
                                     let current_idx = actions.iter().position(|a| a == &info.lid_action).unwrap_or(1);
                                     let next_idx = if forward {
                                         (current_idx + 1) % actions.len()

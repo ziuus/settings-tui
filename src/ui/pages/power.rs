@@ -96,7 +96,6 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             60,
         ));
         lines.push(Line::from(""));
-        row_idx += 1;
         lines.push(Line::from(""));
 
         lines.push(Line::from(Span::styled(
