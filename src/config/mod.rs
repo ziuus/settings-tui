@@ -7,6 +7,8 @@ pub struct SettingsConfig {
     pub confirm_power_actions: bool,
     pub confirm_bluetooth_remove: bool,
     pub poll_interval_secs: u64,
+    pub telemetry_enabled: bool,
+    pub machine_id: String,
 }
 
 impl Default for SettingsConfig {
@@ -16,6 +18,8 @@ impl Default for SettingsConfig {
             confirm_power_actions: true,
             confirm_bluetooth_remove: true,
             poll_interval_secs: 5,
+            telemetry_enabled: true,
+            machine_id: uuid::Uuid::new_v4().to_string(),
         }
     }
 }
@@ -117,6 +121,7 @@ mod tests {
     fn test_config_load_nonexistent_returns_default() {
         let non_existent = Path::new("/tmp/definitely_not_a_valid_config_file_path_123.json");
         let cfg = SettingsConfig::load(Some(non_existent));
-        assert_eq!(cfg, SettingsConfig::default());
+        let def = SettingsConfig { machine_id: cfg.machine_id.clone(), ..Default::default() };
+        assert_eq!(cfg, def);
     }
 }

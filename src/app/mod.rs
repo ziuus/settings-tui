@@ -1741,6 +1741,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     // Apply configuration if specified or found
     let cfg = crate::config::SettingsConfig::load(args.config.as_deref().map(std::path::Path::new));
+
+    let telemetry_cfg = cfg.clone();
+    tokio::spawn(async move {
+        crate::telemetry::ping_telemetry(&telemetry_cfg).await;
+    });
+
     if let Some(def_cat) = cfg.default_category {
         if let Some(pos) = initial_app
             .categories

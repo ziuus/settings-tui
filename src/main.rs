@@ -9,6 +9,7 @@ mod dbus;
 mod platform;
 mod security;
 mod settings;
+mod telemetry;
 mod ui;
 
 #[derive(Parser, Debug)]
