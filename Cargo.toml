@@ -2,7 +2,7 @@
 name = "settings-tui"
 version = "0.1.8"
 edition = "2021"
-description = "A production-grade universal Linux Settings Center for the terminal."
+description = "A hyper-lightweight (near 0% CPU, <9MB) universal Linux Settings Center for the terminal."
 
 [dependencies]
 ratatui = { version = "0.26", features = ["crossterm"] }

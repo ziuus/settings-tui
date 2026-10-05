@@ -29,12 +29,23 @@
 
 ---
 
+## 🪶 Hyper-Lightweight Performance
+
+`settings-tui` is engineered specifically for minimalists, tiling window manager users, and performance purists who refuse to install heavy GUI toolkits just to change a setting.
+
+* **Near 0% Resource Footprint**: Idles at essentially 0% CPU and consumes single-digit Megabytes of RAM.
+* **Zero Background Daemons**: `settings-tui` only runs when you open it. It does not spawn background processes, run node runtimes, or leak memory.
+* **<9 MB Binary**: Compiles down to a tiny, statically linked executable (when stripped) with zero dynamic dependencies on heavy frameworks like GTK, Qt, or Electron.
+* **Instant Sub-15ms Boot**: Launches instantly and immediately populates real-time system data using asynchronous Linux APIs (D-Bus, sysfs).
+
+---
+
 ## ⚡ Why settings-tui?
 
 | Pain Point with Existing Setup | With `settings-tui` |
 |---|---|
 | Memorizing syntax for `nmcli`, `bluetoothctl`, `wpctl`, `brightnessctl`, `hyprctl`, and `systemctl` | **One unified TUI** covering all system settings |
-| Heavy Electron apps or GNOME/KDE control centers requiring 500MB+ dependencies on minimal window managers | **Pure Rust binary** (<9 MB stripped), sub-15ms startup, zero desktop environment lock-in |
+| Heavy Electron apps or GNOME/KDE control centers requiring 500MB+ dependencies on minimal window managers | **Pure Rust binary**, sub-15ms startup, **near 0% idle CPU & RAM usage**, zero desktop environment lock-in |
 | Shell scripts that blindly run commands and assume they worked | **Transactional engine** (`READ -> MUTATE -> READBACK -> VERIFY`) ensuring state changes actually succeeded |
 | Clunky network connection prompts popping up outside your terminal | **Interactive masked password dialogs**, Wi-Fi frequency & security inspection built-in |
 | Hidden or broken features failing silently on different distros | **Transparent Capability Matrix** with honest badges (`[~]`, `[*]`, `[R]`) so you know what is supported |
