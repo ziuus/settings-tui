@@ -30,6 +30,8 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             let mut title = dev.description.clone();
             if dev.is_default {
                 title.push_str(" • Default");
+            } else if is_selected {
+                title.push_str(" [Press Enter to set Default]");
             }
             if dev.muted {
                 title.push_str(" (Muted)");
@@ -67,6 +69,8 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             let mut title = dev.description.clone();
             if dev.is_default {
                 title.push_str(" • Default");
+            } else if is_selected {
+                title.push_str(" [Press Enter to set Default]");
             }
             if dev.muted {
                 title.push_str(" (Muted)");
