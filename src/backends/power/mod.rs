@@ -104,6 +104,7 @@ impl PowerBackend for UPowerBackend {
         }
 
         let mut power_button_action = "poweroff".to_string();
+        let idle_delay = std::process::Command::new("gsettings").args(["get", "org.gnome.desktop.session", "idle-delay"]).output().ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().split(" ").last().unwrap_or("").parse::<u32>().ok());
         let mut lid_action = "suspend".to_string();
 
         let try_read = |path: &str| -> Option<String> { std::fs::read_to_string(path).ok() };
@@ -150,6 +151,7 @@ impl PowerBackend for UPowerBackend {
             charge_limit,
             power_button_action,
             lid_action,
+            idle_delay,
         })
     }
 
@@ -204,6 +206,12 @@ impl PowerBackend for UPowerBackend {
         }
     }
 
+    async fn set_idle_delay(&self, seconds: u32) -> Result<()> {
+        let _ = std::process::Command::new("gsettings")
+            .args(["set", "org.gnome.desktop.session", "idle-delay", &seconds.to_string()])
+            .output();
+        Ok(())
+    }
     async fn set_lid_action(&self, action: &str) -> Result<()> {
         let content = format!("[Login]\nHandleLidSwitch={}\n", action);
         let status = std::process::Command::new("pkexec")

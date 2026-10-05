@@ -66,6 +66,19 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         ]));
 
         text.push(Line::from(""));
+        
+        text.push(Line::from(Span::styled(
+            "Software Management",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )));
+        text.push(Line::from(""));
+        let is_updates = content_active && app.selected_item == 3;
+        let up_control = widgets::value_selector("Check", is_updates);
+        text.extend(widgets::setting_row("System Updates", "Use native package manager in terminal.", up_control, is_updates, 60));
+        text.push(Line::from(""));
+
         text.push(Line::from(Span::styled(
             "Time & Synchronization",
             Style::default()

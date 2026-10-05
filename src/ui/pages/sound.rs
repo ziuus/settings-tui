@@ -120,5 +120,16 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         }
     }
 
+    text.push(Line::from(""));
+    text.push(Line::from(Span::styled(
+        "Diagnostics",
+        Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD),
+    )));
+    text.push(Line::from(""));
+    let is_test = content_active && app.selected_item == app.audio_sinks.len() + app.audio_sources.len();
+    let test_control = widgets::value_selector("Play Test Tone [Enter]", is_test);
+    text.extend(widgets::setting_row("Test Audio Output", "Plays a 440Hz sine wave", test_control, is_test, 60));
     text
 }

@@ -69,6 +69,16 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         let is_lid_btn = content_active && app.selected_item == row_idx;
         let lid_btn_control = widgets::value_selector(&info.lid_action, is_lid_btn);
         lines.extend(widgets::setting_row("Lid Switch Action", "Action when laptop lid is closed", lid_btn_control, is_lid_btn, 60));
+        let is_idle_btn = content_active && app.selected_item == row_idx;
+        let idle_str = match info.idle_delay {
+            Some(0) => "Never".to_string(),
+            Some(s) => format!("{} seconds", s),
+            None => "Unknown".to_string(),
+        };
+        let idle_control = widgets::value_selector(&idle_str, is_idle_btn);
+        lines.extend(widgets::setting_row("Display Sleep Timeout", "Time before screen blanks", idle_control, is_idle_btn, 60));
+        lines.push(Line::from(""));
+        row_idx += 1;
         lines.push(Line::from(""));
 
         lines.push(Line::from(Span::styled(

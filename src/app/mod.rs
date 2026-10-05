@@ -83,6 +83,7 @@ pub enum BackendCommand {
     CyclePowerProfile,
     CyclePowerButtonAction(bool),
     CycleLidAction(bool),
+    CycleIdleDelay(bool),
     SetChargeLimit(u8),
     ToggleWifi(bool),
     ToggleFlightMode(bool),
@@ -110,6 +111,7 @@ pub enum BackendCommand {
     CycleCursorTheme(bool),
     SetFontName(String),
     SetWallpaper(String),
+    TestAudio,
     CycleIconTheme(bool),
 }
 
@@ -1017,6 +1019,8 @@ impl App {
                             let btn_idx = row_idx;
                             row_idx += 1;
                             let lid_idx = row_idx;
+                            row_idx += 1;
+                            let idle_idx = row_idx;
                             if self.selected_item == btn_idx {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CyclePowerButtonAction(true));
@@ -1024,6 +1028,10 @@ impl App {
                             } else if self.selected_item == lid_idx {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CycleLidAction(true));
+                                }
+                            } else if self.selected_item == idle_idx {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CycleIdleDelay(true));
                                 }
                             }
                         } else if cat == "Appearance" {
@@ -1088,6 +1096,8 @@ impl App {
                             let btn_idx = row_idx;
                             row_idx += 1;
                             let lid_idx = row_idx;
+                            row_idx += 1;
+                            let idle_idx = row_idx;
                             if self.selected_item == btn_idx {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CyclePowerButtonAction(false));
@@ -1096,6 +1106,11 @@ impl App {
                             } else if self.selected_item == lid_idx {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CycleLidAction(false));
+                                }
+                                return;
+                            } else if self.selected_item == idle_idx {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CycleIdleDelay(false));
                                 }
                                 return;
                             }
@@ -1319,6 +1334,10 @@ impl App {
                                             .try_send(BackendCommand::ToggleAudioMute(id, is_sink));
                                     }
                                 }
+                            } else if is_enter && self.selected_item == sinks_len + sources_len {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::TestAudio);
+                                }
                             }
                         } else if cat == "Display" {
                             let has_brightness = self.display_brightness.is_some();
@@ -1365,6 +1384,8 @@ impl App {
                             let btn_idx = row_idx;
                             row_idx += 1;
                             let lid_idx = row_idx;
+                            row_idx += 1;
+                            let idle_idx = row_idx;
 
                             if self.selected_item == 0 {
                                 if let Some(tx) = &self.cmd_tx {
@@ -1386,6 +1407,10 @@ impl App {
                             } else if self.selected_item == lid_idx {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CycleLidAction(true));
+                                }
+                            } else if self.selected_item == idle_idx {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CycleIdleDelay(true));
                                 }
                             }
 } else if cat == "Applications"
@@ -2111,6 +2136,30 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                         pwr.set_power_button_action(next_action),
                                         pwr.get_info(),
                                         |new_info: &crate::backends::PowerInfo| new_info.power_button_action == next_action,
+                                        5, 100
+                                    );
+                                    if let Ok(new_info) = pwr.get_info().await {
+                                        let _ = tx_cmd_resp.send(AppEvent::UpdatePower(new_info)).await;
+                                    }
+                                }
+                            }
+                        }
+                                                BackendCommand::CycleIdleDelay(forward) => {
+                            if let Some(pwr) = &power_backend_for_cmd {
+                                if let Ok(info) = pwr.get_info().await {
+                                    let delays: Vec<u32> = vec![0, 60, 120, 300, 600, 900, 1800, 3600];
+                                    let current = info.idle_delay.unwrap_or(300);
+                                    let current_idx = delays.iter().position(|&a| a == current).unwrap_or(3);
+                                    let next_idx = if forward {
+                                        (current_idx + 1) % delays.len()
+                                    } else {
+                                        if current_idx == 0 { delays.len() - 1 } else { current_idx - 1 }
+                                    };
+                                    let next_delay = delays[next_idx];
+                                    let _ = execute_transaction!(
+                                        pwr.set_idle_delay(next_delay),
+                                        pwr.get_info(),
+                                        |new_info: &crate::backends::PowerInfo| new_info.idle_delay == Some(next_delay),
                                         5, 100
                                     );
                                     if let Ok(new_info) = pwr.get_info().await {
@@ -2935,6 +2984,13 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         
+                                                BackendCommand::TestAudio => {
+                            std::thread::spawn(|| {
+                                let _ = std::process::Command::new("speaker-test")
+                                    .args(["-t", "sine", "-f", "440", "-l", "1"])
+                                    .output();
+                            });
+                        }
                         BackendCommand::SetWallpaper(wp) => {
                             if let Some(app) = &appearance_backend_for_cmd {
                                 let _ = app.set_wallpaper(&wp).await;
@@ -3688,6 +3744,7 @@ mod tests {
             energy_rate_w: Some(6.25),
             power_button_action: "suspend".to_string(),
             lid_action: "suspend".to_string(),
+            idle_delay: Some(300),
             health_percentage: Some(78.5),
             charge_cycles: Some(420),
             voltage_v: Some(15.4),
