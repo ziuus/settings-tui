@@ -8,3 +8,4 @@ pub mod power;
 pub mod services;
 pub mod sound;
 pub mod system;
+pub mod about;

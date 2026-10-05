@@ -212,6 +212,8 @@ pub struct PowerInfo {
     pub battery_model: Option<String>,
     pub battery_vendor: Option<String>,
     pub charge_limit: Option<u8>,
+    pub power_button_action: String,
+    pub lid_action: String,
 }
 
 #[async_trait]
@@ -219,6 +221,8 @@ pub trait PowerBackend: Send + Sync {
     async fn get_info(&self) -> Result<PowerInfo>;
     async fn set_power_profile(&self, profile: &str) -> Result<()>;
     async fn set_charge_limit(&self, limit: u8) -> Result<()>;
+    async fn set_power_button_action(&self, action: &str) -> Result<()>;
+    async fn set_lid_action(&self, action: &str) -> Result<()>;
 }
 
 // Core definitions for Services
@@ -274,6 +278,7 @@ pub struct AppearanceInfo {
     pub icon_theme: String,
     pub cursor_theme: String,
     pub font_name: String,
+    pub wallpaper: Option<String>,
     pub available_gtk_themes: Vec<String>,
     pub available_icon_themes: Vec<String>,
     pub available_cursor_themes: Vec<String>,
@@ -287,6 +292,7 @@ pub trait AppearanceBackend: Send + Sync {
     async fn set_icon_theme(&self, theme: &str) -> Result<()>;
     async fn set_cursor_theme(&self, theme: &str) -> Result<()>;
     async fn set_font_name(&self, font: &str) -> Result<()>;
+    async fn set_wallpaper(&self, path: &str) -> Result<()>;
 }
 
 // Core definitions for Applications

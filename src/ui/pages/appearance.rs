@@ -79,6 +79,25 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         let font_control = widgets::value_selector(&info.font_name, is_font_sel);
         let font_row = widgets::setting_row("Interface Font", "Press Enter to set custom font", font_control, is_font_sel, 60);
         lines.extend(font_row);
+        lines.push(Line::from(""));
+
+        lines.push(Line::from(Span::styled(
+            "Desktop Environment",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+
+        // Item 5: Wallpaper
+        let is_wp_sel = content_active && app.selected_item == 5;
+        let mut wp_val = info.wallpaper.as_deref().unwrap_or("Default").trim_start_matches("file://");
+        if wp_val.is_empty() { wp_val = "Default"; }
+        let display_wp = if wp_val.len() > 30 { format!("...{}", &wp_val[wp_val.len().saturating_sub(27)..]) } else { wp_val.to_string() };
+        let wp_control = widgets::value_selector(&display_wp, is_wp_sel);
+        let wp_row = widgets::setting_row("Desktop Wallpaper", "Press Enter to set background path", wp_control, is_wp_sel, 60);
+        lines.extend(wp_row);
+        lines.push(Line::from(""));
 
         lines
     } else {

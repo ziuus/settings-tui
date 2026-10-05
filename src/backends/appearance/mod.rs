@@ -104,6 +104,7 @@ impl AppearanceBackend for GsettingsBackend {
             icon_theme,
             cursor_theme,
             font_name: Self::get_key("org.gnome.desktop.interface", "font-name"),
+            wallpaper: Some(Self::get_key("org.gnome.desktop.background", "picture-uri")),
             available_gtk_themes,
             available_icon_themes,
             available_cursor_themes,
@@ -199,8 +200,32 @@ impl AppearanceBackend for GsettingsBackend {
             Err(anyhow::anyhow!("{}", msg))
         }
     }
-}
 
+    async fn set_wallpaper(&self, path: &str) -> Result<()> {
+        let path_obj = std::path::Path::new(path);
+        let path_str = if path_obj.is_absolute() {
+            path.to_string()
+        } else {
+            std::fs::canonicalize(path_obj).unwrap_or(path_obj.to_path_buf()).display().to_string()
+        };
+        let uri = if path_str.starts_with("file://") { path_str.to_string() } else { format!("file://{}", path_str) };
+        let _ = std::process::Command::new("gsettings")
+            .args(["set", "org.gnome.desktop.background", "picture-uri", &uri])
+            .output();
+        let _ = std::process::Command::new("gsettings")
+            .args(["set", "org.gnome.desktop.background", "picture-uri-dark", &uri])
+            .output();
+        
+        // Also support hyprpaper
+        if let Ok(mut cmd) = std::process::Command::new("hyprctl")
+            .args(["hyprpaper", "wallpaper", &format!(",{}", path_str)])
+            .spawn() {
+                let _ = cmd.wait();
+        }
+        Ok(())
+    }
+
+}
 #[cfg(test)]
 mod tests {
     use super::*;

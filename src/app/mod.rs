@@ -81,6 +81,8 @@ pub enum BackendCommand {
     SetAudioVolume(u32, f64),
     ToggleColorScheme,
     CyclePowerProfile,
+    CyclePowerButtonAction(bool),
+    CycleLidAction(bool),
     SetChargeLimit(u8),
     ToggleWifi(bool),
     ToggleFlightMode(bool),
@@ -107,6 +109,7 @@ pub enum BackendCommand {
     ToggleNightLight(bool),
     CycleCursorTheme(bool),
     SetFontName(String),
+    SetWallpaper(String),
     CycleIconTheme(bool),
 }
 
@@ -170,7 +173,8 @@ pub struct App {
     pub confirm_action: Option<(String, BackendCommand)>,
     pub password_modal: Option<PasswordModal>,
     pub hostname_modal: Option<String>,
-    pub font_modal: Option<String>, // editing buffer for new hostname
+    pub font_modal: Option<String>,
+    pub wallpaper_modal: Option<String>, // editing buffer for new hostname
     pub capabilities: crate::platform::PlatformCapabilities,
 }
 
@@ -202,6 +206,7 @@ impl App {
             password_modal: None,
             hostname_modal: None,
             font_modal: None,
+            wallpaper_modal: None,
             capabilities: crate::platform::PlatformCapabilities::detect(
                 true, true, true, true, true, true, true, true,
             ),
@@ -821,6 +826,35 @@ impl App {
             return;
         }
 
+        
+        if self.wallpaper_modal.is_some() {
+            match key.code {
+                KeyCode::Esc => {
+                    self.wallpaper_modal = None;
+                }
+                KeyCode::Enter => {
+                    if let Some(wp) = self.wallpaper_modal.take() {
+                        if !wp.is_empty() {
+                            if let Some(tx) = &self.cmd_tx {
+                                let _ = tx.try_send(BackendCommand::SetWallpaper(wp));
+                            }
+                        }
+                    }
+                }
+                KeyCode::Char(c) => {
+                    if let Some(wp) = &mut self.wallpaper_modal {
+                        wp.push(c);
+                    }
+                }
+                KeyCode::Backspace => {
+                    if let Some(wp) = &mut self.wallpaper_modal {
+                        wp.pop();
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
         if self.font_modal.is_some() {
             match key.code {
                 KeyCode::Esc => {
@@ -975,6 +1009,23 @@ impl App {
                                         tx.try_send(BackendCommand::SetPointerSensitivity(new_val));
                                 }
                             }
+                        
+                        } else if cat == "Power" {
+                            let mut row_idx = 1;
+                            let has_limit = self.power_info.as_ref().and_then(|info| info.charge_limit).is_some();
+                            if has_limit { row_idx += 1; }
+                            let btn_idx = row_idx;
+                            row_idx += 1;
+                            let lid_idx = row_idx;
+                            if self.selected_item == btn_idx {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CyclePowerButtonAction(true));
+                                }
+                            } else if self.selected_item == lid_idx {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CycleLidAction(true));
+                                }
+                            }
                         } else if cat == "Appearance" {
                             if self.selected_item == 1 {
                                 if let Some(tx) = &self.cmd_tx {
@@ -987,6 +1038,9 @@ impl App {
                             } else if self.selected_item == 4 {
                                 let current = self.appearance_info.as_ref().map(|s| s.font_name.clone()).unwrap_or_default();
                                 self.font_modal = Some(current);
+                            } else if self.selected_item == 5 {
+                                let current = self.appearance_info.as_ref().and_then(|s| s.wallpaper.clone()).unwrap_or_default().trim_start_matches("file://").to_string();
+                                self.wallpaper_modal = Some(current);
                             } else if self.selected_item == 2 {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CycleIconTheme(true));
@@ -1026,6 +1080,25 @@ impl App {
                                 }
                             }
                             return;
+                        
+                        } else if (key.code == KeyCode::Left || key.code == KeyCode::Char('h')) && cat == "Power" {
+                            let mut row_idx = 1;
+                            let has_limit = self.power_info.as_ref().and_then(|info| info.charge_limit).is_some();
+                            if has_limit { row_idx += 1; }
+                            let btn_idx = row_idx;
+                            row_idx += 1;
+                            let lid_idx = row_idx;
+                            if self.selected_item == btn_idx {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CyclePowerButtonAction(false));
+                                }
+                                return;
+                            } else if self.selected_item == lid_idx {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CycleLidAction(false));
+                                }
+                                return;
+                            }
                         } else if (key.code == KeyCode::Left || key.code == KeyCode::Char('h'))
                             && cat == "Appearance"
                         {
@@ -1042,6 +1115,9 @@ impl App {
                             } else if self.selected_item == 4 {
                                 let current = self.appearance_info.as_ref().map(|s| s.font_name.clone()).unwrap_or_default();
                                 self.font_modal = Some(current);
+                            } else if self.selected_item == 5 {
+                                let current = self.appearance_info.as_ref().and_then(|s| s.wallpaper.clone()).unwrap_or_default().trim_start_matches("file://").to_string();
+                                self.wallpaper_modal = Some(current);
                                 return;
                             } else if self.selected_item == 2 {
                                 if let Some(tx) = &self.cmd_tx {
@@ -1272,17 +1348,29 @@ impl App {
                             } else if self.selected_item == 4 {
                                 let current = self.appearance_info.as_ref().map(|s| s.font_name.clone()).unwrap_or_default();
                                 self.font_modal = Some(current);
+                            } else if self.selected_item == 5 {
+                                let current = self.appearance_info.as_ref().and_then(|s| s.wallpaper.clone()).unwrap_or_default().trim_start_matches("file://").to_string();
+                                self.wallpaper_modal = Some(current);
                             } else if self.selected_item == 2 {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CycleIconTheme(true));
                                 }
                             }
+                        
                         } else if cat == "Power" {
+                            let mut row_idx = 1;
+                            let has_limit = self.power_info.as_ref().and_then(|info| info.charge_limit).is_some();
+                            let limit_idx = if has_limit { Some(row_idx) } else { None };
+                            if has_limit { row_idx += 1; }
+                            let btn_idx = row_idx;
+                            row_idx += 1;
+                            let lid_idx = row_idx;
+
                             if self.selected_item == 0 {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CyclePowerProfile);
                                 }
-                            } else if self.selected_item == 1 {
+                            } else if Some(self.selected_item) == limit_idx {
                                 if let Some(info) = &self.power_info {
                                     if let Some(limit) = info.charge_limit {
                                         let target = if limit < 100 { 100 } else { 80 };
@@ -1291,8 +1379,16 @@ impl App {
                                         }
                                     }
                                 }
+                            } else if self.selected_item == btn_idx {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CyclePowerButtonAction(true));
+                                }
+                            } else if self.selected_item == lid_idx {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CycleLidAction(true));
+                                }
                             }
-                        } else if cat == "Applications"
+} else if cat == "Applications"
                             && self.selected_item < self.applications.len()
                         {
                             let app = &self.applications[self.selected_item];
@@ -1996,6 +2092,53 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 }
                                 if let Ok(actual_info) = final_state {
                                     let _ = tx_cmd_resp.send(AppEvent::UpdatePower(actual_info)).await;
+                                }
+                            }
+                        }
+                        
+                        BackendCommand::CyclePowerButtonAction(forward) => {
+                            if let Some(pwr) = &power_backend_for_cmd {
+                                if let Ok(info) = pwr.get_info().await {
+                                    let actions = vec!["ignore", "poweroff", "suspend", "hibernate", "interactive"];
+                                    let current_idx = actions.iter().position(|a| a == &info.power_button_action).unwrap_or(1);
+                                    let next_idx = if forward {
+                                        (current_idx + 1) % actions.len()
+                                    } else {
+                                        if current_idx == 0 { actions.len() - 1 } else { current_idx - 1 }
+                                    };
+                                    let next_action = actions[next_idx];
+                                    let _ = execute_transaction!(
+                                        pwr.set_power_button_action(next_action),
+                                        pwr.get_info(),
+                                        |new_info: &crate::backends::PowerInfo| new_info.power_button_action == next_action,
+                                        5, 100
+                                    );
+                                    if let Ok(new_info) = pwr.get_info().await {
+                                        let _ = tx_cmd_resp.send(AppEvent::UpdatePower(new_info)).await;
+                                    }
+                                }
+                            }
+                        }
+                        BackendCommand::CycleLidAction(forward) => {
+                            if let Some(pwr) = &power_backend_for_cmd {
+                                if let Ok(info) = pwr.get_info().await {
+                                    let actions = vec!["ignore", "suspend", "hibernate"];
+                                    let current_idx = actions.iter().position(|a| a == &info.lid_action).unwrap_or(1);
+                                    let next_idx = if forward {
+                                        (current_idx + 1) % actions.len()
+                                    } else {
+                                        if current_idx == 0 { actions.len() - 1 } else { current_idx - 1 }
+                                    };
+                                    let next_action = actions[next_idx];
+                                    let _ = execute_transaction!(
+                                        pwr.set_lid_action(next_action),
+                                        pwr.get_info(),
+                                        |new_info: &crate::backends::PowerInfo| new_info.lid_action == next_action,
+                                        5, 100
+                                    );
+                                    if let Ok(new_info) = pwr.get_info().await {
+                                        let _ = tx_cmd_resp.send(AppEvent::UpdatePower(new_info)).await;
+                                    }
                                 }
                             }
                         }
@@ -2791,6 +2934,15 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 }
                             }
                         }
+                        
+                        BackendCommand::SetWallpaper(wp) => {
+                            if let Some(app) = &appearance_backend_for_cmd {
+                                let _ = app.set_wallpaper(&wp).await;
+                                if let Ok(info) = app.get_info().await {
+                                    let _ = tx_cmd_resp.send(AppEvent::UpdateAppearance(info)).await;
+                                }
+                            }
+                        }
                         BackendCommand::SetFontName(font) => {
                             if let Some(appr) = &appearance_backend_for_cmd {
                                 let _ = execute_transaction!(
@@ -3534,6 +3686,8 @@ mod tests {
             energy_full_wh: Some(55.0),
             energy_full_design_wh: Some(70.0),
             energy_rate_w: Some(6.25),
+            power_button_action: "suspend".to_string(),
+            lid_action: "suspend".to_string(),
             health_percentage: Some(78.5),
             charge_cycles: Some(420),
             voltage_v: Some(15.4),

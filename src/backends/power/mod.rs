@@ -103,6 +103,34 @@ impl PowerBackend for UPowerBackend {
             }
         }
 
+        let mut power_button_action = "poweroff".to_string();
+        let mut lid_action = "suspend".to_string();
+
+        let try_read = |path: &str| -> Option<String> { std::fs::read_to_string(path).ok() };
+        if let Some(content) = try_read("/etc/systemd/logind.conf.d/settings-tui-powerkey.conf").or_else(|| try_read("/etc/systemd/logind.conf")) {
+            for line in content.lines() {
+                let l = line.trim();
+                if l.starts_with("HandlePowerKey=") {
+                    power_button_action = l.replace("HandlePowerKey=", "");
+                } else if l.starts_with("#HandlePowerKey=") {
+                    if power_button_action == "poweroff" {
+                        power_button_action = l.replace("#HandlePowerKey=", "");
+                    }
+                }
+            }
+        }
+        if let Some(content) = try_read("/etc/systemd/logind.conf.d/settings-tui-lid.conf").or_else(|| try_read("/etc/systemd/logind.conf")) {
+            for line in content.lines() {
+                let l = line.trim();
+                if l.starts_with("HandleLidSwitch=") {
+                    lid_action = l.replace("HandleLidSwitch=", "");
+                } else if l.starts_with("#HandleLidSwitch=") {
+                    if lid_action == "suspend" {
+                        lid_action = l.replace("#HandleLidSwitch=", "");
+                    }
+                }
+            }
+        }
         Ok(PowerInfo {
             on_battery,
             battery_percentage,
@@ -120,6 +148,8 @@ impl PowerBackend for UPowerBackend {
             battery_model,
             battery_vendor,
             charge_limit,
+            power_button_action,
+            lid_action,
         })
     }
 
@@ -159,5 +189,32 @@ impl PowerBackend for UPowerBackend {
         let profiles = PowerProfilesProxy::new(&self.connection).await?;
         profiles.set_active_profile(profile).await?;
         Ok(())
+    }
+    async fn set_power_button_action(&self, action: &str) -> Result<()> {
+        let content = format!("[Login]\nHandlePowerKey={}\n", action);
+        let status = std::process::Command::new("pkexec")
+            .arg("sh")
+            .arg("-c")
+            .arg(format!("mkdir -p /etc/systemd/logind.conf.d && echo '{}' > /etc/systemd/logind.conf.d/settings-tui-powerkey.conf && systemctl reload systemd-logind || systemctl restart systemd-logind", content))
+            .status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Failed to set power button action"))
+        }
+    }
+
+    async fn set_lid_action(&self, action: &str) -> Result<()> {
+        let content = format!("[Login]\nHandleLidSwitch={}\n", action);
+        let status = std::process::Command::new("pkexec")
+            .arg("sh")
+            .arg("-c")
+            .arg(format!("mkdir -p /etc/systemd/logind.conf.d && echo '{}' > /etc/systemd/logind.conf.d/settings-tui-lid.conf && systemctl reload systemd-logind || systemctl restart systemd-logind", content))
+            .status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Failed to set lid action"))
+        }
     }
 }

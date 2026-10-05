@@ -38,13 +38,15 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         lines.extend(prof_lines);
         lines.push(Line::from(""));
 
+        let mut row_idx = 1;
+
         if let Some(limit) = info.charge_limit {
             let limit_desc = if limit < 100 {
                 "Conservation mode active (limits charge)"
             } else {
                 "Maximum charge allowed (Standard mode)"
             };
-            let is_limit_selected = content_active && app.selected_item == 1;
+            let is_limit_selected = content_active && app.selected_item == row_idx;
             let limit_control = widgets::value_selector(&format!("{}%", limit), is_limit_selected);
             let limit_lines = widgets::setting_row(
                 "Battery Charge Limit",
@@ -55,7 +57,19 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             );
             lines.extend(limit_lines);
             lines.push(Line::from(""));
+            row_idx += 1;
         }
+
+        let is_pwr_btn = content_active && app.selected_item == row_idx;
+        let pwr_btn_control = widgets::value_selector(&info.power_button_action, is_pwr_btn);
+        lines.extend(widgets::setting_row("Power Button Action", "Action when hardware power button is pressed", pwr_btn_control, is_pwr_btn, 60));
+        lines.push(Line::from(""));
+        row_idx += 1;
+
+        let is_lid_btn = content_active && app.selected_item == row_idx;
+        let lid_btn_control = widgets::value_selector(&info.lid_action, is_lid_btn);
+        lines.extend(widgets::setting_row("Lid Switch Action", "Action when laptop lid is closed", lid_btn_control, is_lid_btn, 60));
+        lines.push(Line::from(""));
 
         lines.push(Line::from(Span::styled(
             "Battery Information",

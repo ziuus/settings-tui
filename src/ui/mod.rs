@@ -231,6 +231,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             "Display" => pages::display::render(app, content_active),
             "Appearance" => pages::appearance::render(app, content_active),
             "Applications" => pages::applications::render(app, content_active),
+            "About" => pages::about::render(app, content_active),
             "Mouse & Touchpad" => pages::input::render(app, content_active),
             _ => {
                 vec![
