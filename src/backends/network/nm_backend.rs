@@ -61,6 +61,20 @@ impl NetworkBackend for NetworkManagerBackend {
             let dev_type = dev_proxy.device_type().await.unwrap_or(0);
 
             // 2 is NM_DEVICE_TYPE_WIFI
+            if dev_type == 1 {
+                let interface = dev_proxy.interface().await.unwrap_or_else(|_| "Ethernet".to_string());
+                let state = dev_proxy.state().await.unwrap_or(0);
+                let connected = state == 100;
+                networks.push(Network {
+                    id: NetworkId(interface.clone()),
+                    name: format!("Wired ({})", interface),
+                    connected,
+                    strength: 100,
+                    saved: true,
+                    security: "None".to_string(),
+                    frequency_mhz: 0,
+                });
+            }
             if dev_type == 2 {
                 let wireless_proxy = WirelessDeviceProxy::builder(&self.connection)
                     .path(dev_path.clone())?
