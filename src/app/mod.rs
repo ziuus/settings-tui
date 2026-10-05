@@ -1778,40 +1778,32 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         initial_app.update_search_results();
     }
 
-    let sponsor_message = std::sync::Arc::new(tokio::sync::Mutex::new(None::<String>));
-    let sponsor_clone = sponsor_message.clone();
-    tokio::spawn(async move {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(3))
-            .build()
-            .unwrap_or_default();
-        if let Ok(resp) = client
-            .get("https://settings-tui.vercel.app/api/sponsor")
-            .send()
-            .await
-        {
-            if let Ok(json) = resp.json::<serde_json::Value>().await {
-                if let Some(enabled) = json.get("enabled").and_then(|v| v.as_bool()) {
-                    if enabled {
-                        if let Some(msg) = json.get("message").and_then(|v| v.as_str()) {
-                            *sponsor_clone.lock().await = Some(msg.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    });
-
     let app = Arc::new(Mutex::new(initial_app));
     let app_clone_sponsor = app.clone();
+    
     tokio::spawn(async move {
         let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(3)).build().unwrap_or_default();
         if let Ok(resp) = client.get("https://settings-tui.vercel.app/api/sponsor").send().await {
             if let Ok(json) = resp.json::<serde_json::Value>().await {
                 if let Some(enabled) = json.get("enabled").and_then(|v| v.as_bool()) {
                     if enabled {
-                        if let Some(msg) = json.get("message").and_then(|v| v.as_str()) {
-                            app_clone_sponsor.lock().await.sponsor_msg = Some(msg.to_string());
+                        let text = json.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                        let link = json.get("link").and_then(|v| v.as_str()).unwrap_or("");
+                        let view_url = json.get("view_url").and_then(|v| v.as_str());
+                        
+                        if !text.is_empty() {
+                            let display_msg = if !link.is_empty() {
+                                format!("{} - {}", text, link)
+                            } else {
+                                text.to_string()
+                            };
+                            
+                            app_clone_sponsor.lock().await.sponsor_msg = Some(display_msg);
+                            
+                            // Fire the tracking pixel asynchronously so the ad network registers the impression
+                            if let Some(url) = view_url {
+                                let _ = client.get(url).send().await;
+                            }
                         }
                     }
                 }
@@ -3328,8 +3320,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         DisableMouseCapture
     )?;
     terminal.show_cursor()?;
-    if let Ok(mut lock) = sponsor_message.try_lock() {
-        if let Some(msg) = lock.take() {
+    if let Ok(mut lock) = app.try_lock() {
+        if let Some(msg) = lock.sponsor_msg.take() {
             println!("\n{}\n", msg);
         }
     }
