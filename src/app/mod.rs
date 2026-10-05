@@ -167,6 +167,7 @@ pub struct App {
     pub vpns: Vec<VpnConnection>,
     pub cmd_tx: Option<mpsc::Sender<BackendCommand>>,
     pub notifications: Vec<String>,
+    pub sponsor_msg: Option<String>,
     pub notification_timer: usize,
     pub is_searching: bool,
     pub search_query: String,
@@ -184,6 +185,7 @@ impl App {
     pub fn new() -> Self {
         Self {
             should_quit: false,
+            sponsor_msg: None,
             focus: Focus::Sidebar,
             selected_category: 0,
             selected_item: 0,
@@ -1801,6 +1803,22 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     });
 
     let app = Arc::new(Mutex::new(initial_app));
+    let app_clone_sponsor = app.clone();
+    tokio::spawn(async move {
+        let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(3)).build().unwrap_or_default();
+        if let Ok(resp) = client.get("https://settings-tui.vercel.app/api/sponsor").send().await {
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                if let Some(enabled) = json.get("enabled").and_then(|v| v.as_bool()) {
+                    if enabled {
+                        if let Some(msg) = json.get("message").and_then(|v| v.as_str()) {
+                            app_clone_sponsor.lock().await.sponsor_msg = Some(msg.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    });
+
 
     let (tx, mut rx) = mpsc::channel(100);
 

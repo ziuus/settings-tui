@@ -35,16 +35,24 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         return;
     }
 
+    let mut constraints = vec![
+        Constraint::Length(1), // Top bar space
+        Constraint::Length(1), // Header
+        Constraint::Length(1), // Spacer
+        Constraint::Min(0),    // Main content
+    ];
+    
+    if app.sponsor_msg.is_some() {
+        constraints.push(Constraint::Length(1)); // Sponsor spacer
+        constraints.push(Constraint::Length(1)); // Sponsor ad
+    }
+    
+    constraints.push(Constraint::Length(1)); // Footer spacer
+    constraints.push(Constraint::Length(1)); // Footer keybindings
+
     let main_layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // Top bar space
-            Constraint::Length(1), // Header
-            Constraint::Length(1), // Spacer
-            Constraint::Min(0),    // Main content
-            Constraint::Length(1), // Footer spacer
-            Constraint::Length(1), // Footer keybindings
-        ])
+        .constraints(constraints)
         .split(area.inner(&Margin {
             vertical: 1,
             horizontal: 2,
@@ -356,7 +364,16 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     ]);
 
     let footer = Paragraph::new(footer_text).alignment(ratatui::layout::Alignment::Center);
-    f.render_widget(footer, main_layout[5]);
+    f.render_widget(footer, main_layout[main_layout.len() - 1]);
+
+    if let Some(msg) = &app.sponsor_msg {
+        let sponsor_p = Paragraph::new(Line::from(vec![
+            Span::styled(msg, Style::default().fg(Color::DarkGray)),
+            Span::styled("  [Ad] ", Style::default().fg(Color::DarkGray)),
+        ])).alignment(ratatui::layout::Alignment::Right);
+        
+        f.render_widget(sponsor_p, main_layout[main_layout.len() - 3]);
+    }
 
     // Render confirm modal
     if let Some((msg, _)) = &app.confirm_action {
