@@ -21,7 +21,7 @@ pub async fn ping_telemetry(config: &SettingsConfig) {
     }
 
     // Set your tracking endpoint here (e.g. PostHog, Plausible, Custom API)
-    let endpoint = "https://your-analytics-endpoint.com/track";
+    let endpoint = "https://settings-tui.vercel.app/api/telemetry";
 
     let payload = TelemetryPayload {
         app: "settings-tui".to_string(),
