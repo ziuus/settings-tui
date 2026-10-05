@@ -105,6 +105,8 @@ pub enum BackendCommand {
     SetHostname(String),
     CycleGtkTheme(bool), // true = next, false = prev
     ToggleNightLight(bool),
+    CycleCursorTheme(bool),
+    SetFontName(String),
     CycleIconTheme(bool),
 }
 
@@ -167,7 +169,8 @@ pub struct App {
     pub search_selected_idx: usize,
     pub confirm_action: Option<(String, BackendCommand)>,
     pub password_modal: Option<PasswordModal>,
-    pub hostname_modal: Option<String>, // editing buffer for new hostname
+    pub hostname_modal: Option<String>,
+    pub font_modal: Option<String>, // editing buffer for new hostname
     pub capabilities: crate::platform::PlatformCapabilities,
 }
 
@@ -198,6 +201,7 @@ impl App {
             confirm_action: None,
             password_modal: None,
             hostname_modal: None,
+            font_modal: None,
             capabilities: crate::platform::PlatformCapabilities::detect(
                 true, true, true, true, true, true, true, true,
             ),
@@ -817,6 +821,34 @@ impl App {
             return;
         }
 
+        if self.font_modal.is_some() {
+            match key.code {
+                KeyCode::Esc => {
+                    self.font_modal = None;
+                }
+                KeyCode::Enter => {
+                    if let Some(font) = self.font_modal.take() {
+                        if !font.is_empty() {
+                            if let Some(tx) = &self.cmd_tx {
+                                let _ = tx.try_send(BackendCommand::SetFontName(font));
+                            }
+                        }
+                    }
+                }
+                KeyCode::Char(c) => {
+                    if let Some(font) = &mut self.font_modal {
+                        font.push(c);
+                    }
+                }
+                KeyCode::Backspace => {
+                    if let Some(font) = &mut self.font_modal {
+                        font.pop();
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
         if self.hostname_modal.is_some() {
             match key.code {
                 KeyCode::Esc => {
@@ -948,6 +980,13 @@ impl App {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CycleGtkTheme(true));
                                 }
+                            } else if self.selected_item == 3 {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CycleCursorTheme(true));
+                                }
+                            } else if self.selected_item == 4 {
+                                let current = self.appearance_info.as_ref().map(|s| s.font_name.clone()).unwrap_or_default();
+                                self.font_modal = Some(current);
                             } else if self.selected_item == 2 {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CycleIconTheme(true));
@@ -994,6 +1033,15 @@ impl App {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CycleGtkTheme(false));
                                 }
+                                return;
+                            } else if self.selected_item == 3 {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CycleCursorTheme(false));
+                                }
+                                return;
+                            } else if self.selected_item == 4 {
+                                let current = self.appearance_info.as_ref().map(|s| s.font_name.clone()).unwrap_or_default();
+                                self.font_modal = Some(current);
                                 return;
                             } else if self.selected_item == 2 {
                                 if let Some(tx) = &self.cmd_tx {
@@ -1217,6 +1265,13 @@ impl App {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CycleGtkTheme(true));
                                 }
+                            } else if self.selected_item == 3 {
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::CycleCursorTheme(true));
+                                }
+                            } else if self.selected_item == 4 {
+                                let current = self.appearance_info.as_ref().map(|s| s.font_name.clone()).unwrap_or_default();
+                                self.font_modal = Some(current);
                             } else if self.selected_item == 2 {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CycleIconTheme(true));
@@ -2709,6 +2764,43 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                                 .await;
                                         }
                                     }
+                                }
+                            }
+                        }
+                        BackendCommand::CycleCursorTheme(forward) => {
+                            if let Some(appr) = &appearance_backend_for_cmd {
+                                if let Ok(info) = appr.get_info().await {
+                                    if !info.available_cursor_themes.is_empty() {
+                                        let current_idx = info.available_cursor_themes.iter().position(|t| t == &info.cursor_theme).unwrap_or(0);
+                                        let next_idx = if forward {
+                                            (current_idx + 1) % info.available_cursor_themes.len()
+                                        } else {
+                                            if current_idx == 0 { info.available_cursor_themes.len() - 1 } else { current_idx - 1 }
+                                        };
+                                        let next_theme = info.available_cursor_themes[next_idx].clone();
+                                        let _ = execute_transaction!(
+                                            appr.set_cursor_theme(&next_theme),
+                                            appr.get_info(),
+                                            |new_info: &crate::backends::AppearanceInfo| new_info.cursor_theme == next_theme,
+                                            5, 50
+                                        );
+                                        if let Ok(new_info) = appr.get_info().await {
+                                            let _ = tx_cmd_resp.send(AppEvent::UpdateAppearance(new_info)).await;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        BackendCommand::SetFontName(font) => {
+                            if let Some(appr) = &appearance_backend_for_cmd {
+                                let _ = execute_transaction!(
+                                    appr.set_font_name(&font),
+                                    appr.get_info(),
+                                    |new_info: &crate::backends::AppearanceInfo| new_info.font_name == font,
+                                    5, 50
+                                );
+                                if let Ok(new_info) = appr.get_info().await {
+                                    let _ = tx_cmd_resp.send(AppEvent::UpdateAppearance(new_info)).await;
                                 }
                             }
                         }

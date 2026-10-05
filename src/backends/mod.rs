@@ -276,6 +276,7 @@ pub struct AppearanceInfo {
     pub font_name: String,
     pub available_gtk_themes: Vec<String>,
     pub available_icon_themes: Vec<String>,
+    pub available_cursor_themes: Vec<String>,
 }
 
 #[async_trait]
@@ -284,6 +285,8 @@ pub trait AppearanceBackend: Send + Sync {
     async fn set_color_scheme(&self, scheme: &str) -> Result<()>;
     async fn set_gtk_theme(&self, theme: &str) -> Result<()>;
     async fn set_icon_theme(&self, theme: &str) -> Result<()>;
+    async fn set_cursor_theme(&self, theme: &str) -> Result<()>;
+    async fn set_font_name(&self, font: &str) -> Result<()>;
 }
 
 // Core definitions for Applications

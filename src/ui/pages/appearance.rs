@@ -54,7 +54,6 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         lines.extend(icon_row);
         lines.push(Line::from(""));
 
-        // Read-only system typography & cursor
         lines.push(Line::from(Span::styled(
             "Cursor & Typography",
             Style::default()
@@ -62,19 +61,25 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
                 .add_modifier(Modifier::BOLD),
         )));
         lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::styled("   ", Style::default()),
-            Span::styled(
-                format!("{:<15}", "Cursor Theme"),
-                Style::default().fg(Color::Gray),
-            ),
-            Span::raw(info.cursor_theme.clone()),
-        ]));
-        lines.push(Line::from(vec![
-            Span::styled("   ", Style::default()),
-            Span::styled(format!("{:<15}", "Font"), Style::default().fg(Color::Gray)),
-            Span::raw(info.font_name.clone()),
-        ]));
+
+        // Item 3: Cursor Theme
+        let is_cursor_sel = content_active && app.selected_item == 3;
+        let cursor_desc = format!(
+            "Installed cursors: {} [←/→ or Enter to cycle]",
+            info.available_cursor_themes.len()
+        );
+        let cursor_control = widgets::value_selector(&info.cursor_theme, is_cursor_sel);
+        let cursor_row =
+            widgets::setting_row("Cursor Theme", &cursor_desc, cursor_control, is_cursor_sel, 60);
+        lines.extend(cursor_row);
+        lines.push(Line::from(""));
+
+        // Item 4: Font Name
+        let is_font_sel = content_active && app.selected_item == 4;
+        let font_control = widgets::value_selector(&info.font_name, is_font_sel);
+        let font_row = widgets::setting_row("Interface Font", "Press Enter to set custom font", font_control, is_font_sel, 60);
+        lines.extend(font_row);
+
         lines
     } else {
         vec![Line::from(Span::styled(

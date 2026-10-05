@@ -28,7 +28,7 @@ impl GsettingsBackend {
         }
     }
 
-    fn scan_theme_dirs(dirs: &[std::path::PathBuf], require_index: bool) -> Vec<String> {
+    fn scan_theme_dirs(dirs: &[std::path::PathBuf], require_index: bool, require_cursors: bool) -> Vec<String> {
         let mut themes = Vec::new();
         for dir in dirs {
             if let Ok(entries) = std::fs::read_dir(dir) {
@@ -39,6 +39,7 @@ impl GsettingsBackend {
                             let name = entry.file_name().to_string_lossy().to_string();
                             if !name.starts_with('.')
                                 && (!require_index || path.join("index.theme").exists())
+                                && (!require_cursors || path.join("cursors").exists())
                                 && !themes.contains(&name)
                             {
                                 themes.push(name);
@@ -76,7 +77,7 @@ impl AppearanceBackend for GsettingsBackend {
             home_path.join(".local/share/icons"),
         ];
 
-        let mut available_gtk_themes = Self::scan_theme_dirs(&gtk_dirs, false);
+        let mut available_gtk_themes = Self::scan_theme_dirs(&gtk_dirs, false, false);
         if !gtk_theme.is_empty()
             && gtk_theme != "Unknown"
             && !available_gtk_themes.contains(&gtk_theme)
@@ -84,7 +85,12 @@ impl AppearanceBackend for GsettingsBackend {
             available_gtk_themes.insert(0, gtk_theme.clone());
         }
 
-        let mut available_icon_themes = Self::scan_theme_dirs(&icon_dirs, true);
+        let mut available_cursor_themes = Self::scan_theme_dirs(&icon_dirs, false, true);
+        let cursor_theme = Self::get_key("org.gnome.desktop.interface", "cursor-theme");
+        if !cursor_theme.is_empty() && cursor_theme != "Unknown" && !available_cursor_themes.contains(&cursor_theme) {
+            available_cursor_themes.insert(0, cursor_theme.clone());
+        }
+        let mut available_icon_themes = Self::scan_theme_dirs(&icon_dirs, true, false);
         if !icon_theme.is_empty()
             && icon_theme != "Unknown"
             && !available_icon_themes.contains(&icon_theme)
@@ -96,10 +102,11 @@ impl AppearanceBackend for GsettingsBackend {
             color_scheme: Self::get_key("org.gnome.desktop.interface", "color-scheme"),
             gtk_theme,
             icon_theme,
-            cursor_theme: Self::get_key("org.gnome.desktop.interface", "cursor-theme"),
+            cursor_theme,
             font_name: Self::get_key("org.gnome.desktop.interface", "font-name"),
             available_gtk_themes,
             available_icon_themes,
+            available_cursor_themes,
         })
     }
 
@@ -145,6 +152,33 @@ impl AppearanceBackend for GsettingsBackend {
         }
     }
 
+    async fn set_cursor_theme(&self, theme: &str) -> Result<()> {
+        let output = Command::new("gsettings")
+            .arg("set")
+            .arg("org.gnome.desktop.interface")
+            .arg("cursor-theme")
+            .arg(theme)
+            .output()?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Failed to set cursor theme"))
+        }
+    }
+
+    async fn set_font_name(&self, font: &str) -> Result<()> {
+        let output = Command::new("gsettings")
+            .arg("set")
+            .arg("org.gnome.desktop.interface")
+            .arg("font-name")
+            .arg(font)
+            .output()?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Failed to set font name"))
+        }
+    }
     async fn set_icon_theme(&self, theme: &str) -> Result<()> {
         let output = Command::new("gsettings")
             .arg("set")
@@ -173,17 +207,24 @@ mod tests {
 
     #[test]
     fn test_scan_theme_dirs_nonexistent() {
+        let fake_dirs = vec![std::path::PathBuf::from("/nonexistent/directory/path/themes")];
+        let themes = GsettingsBackend::scan_theme_dirs(&fake_dirs, false, false);
+        assert!(themes.is_empty());
+    }
+
+    #[test]
+    fn test_dummy_123() {
         let fake_dirs = vec![std::path::PathBuf::from(
             "/nonexistent/directory/path/themes",
         )];
-        let themes = GsettingsBackend::scan_theme_dirs(&fake_dirs, false);
+        let themes = GsettingsBackend::scan_theme_dirs(&fake_dirs, false, false);
         assert!(themes.is_empty());
     }
 
     #[test]
     fn test_scan_theme_dirs_system() {
         let sys_dirs = vec![std::path::PathBuf::from("/usr/share/themes")];
-        let themes = GsettingsBackend::scan_theme_dirs(&sys_dirs, false);
+        let themes = GsettingsBackend::scan_theme_dirs(&sys_dirs, false, false);
         // On Linux /usr/share/themes exists or is empty, shouldn't crash
         for t in &themes {
             assert!(!t.starts_with('.'));
