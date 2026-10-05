@@ -5,6 +5,8 @@
 ### The Missing Native Control Center for Linux Power Users
 
 [![CI](https://github.com/ziuus/settings-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/ziuus/settings-tui/actions/workflows/ci.yml)
+[![GitHub stars](https://img.shields.io/github/stars/ziuus/settings-tui.svg?style=flat&color=yellow)](https://github.com/ziuus/settings-tui/stargazers)
+[![npm downloads](https://img.shields.io/npm/dt/settings-tui.svg?style=flat&color=CB3837)](https://www.npmjs.com/package/settings-tui)
 [![npm version](https://img.shields.io/npm/v/settings-tui.svg?style=flat&color=CB3837)](https://www.npmjs.com/package/settings-tui)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE-MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.75+-dea584.svg)](https://www.rust-lang.org)
