@@ -9,6 +9,7 @@
   },
   "preferGlobal": true,
   "scripts": {
+    "postinstall": "cargo build --release || echo \"Failed to build binary. Ensure Rust is installed.\"",
     "start": "node bin/settings-tui.js",
     "build": "cargo build --release",
     "test": "cargo test --all-features",
@@ -44,6 +45,9 @@
   ],
   "files": [
     "bin/",
+    "src/",
+    "Cargo.toml",
+    "Cargo.lock",
     "README.md",
     "LICENSE-MIT"
   ]
