@@ -1,3 +1,4 @@
+pub mod about;
 pub mod appearance;
 pub mod applications;
 pub mod bluetooth;
@@ -8,4 +9,3 @@ pub mod power;
 pub mod services;
 pub mod sound;
 pub mod system;
-pub mod about;

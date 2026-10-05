@@ -62,7 +62,10 @@ impl NetworkBackend for NetworkManagerBackend {
 
             // 2 is NM_DEVICE_TYPE_WIFI
             if dev_type == 1 {
-                let interface = dev_proxy.interface().await.unwrap_or_else(|_| "Ethernet".to_string());
+                let interface = dev_proxy
+                    .interface()
+                    .await
+                    .unwrap_or_else(|_| "Ethernet".to_string());
                 let state = dev_proxy.state().await.unwrap_or(0);
                 let connected = state == 100;
                 networks.push(Network {
@@ -408,7 +411,17 @@ impl NetworkBackend for NetworkManagerBackend {
     async fn set_hotspot_enabled(&self, enabled: bool) -> Result<()> {
         if enabled {
             let _ = std::process::Command::new("nmcli")
-                .args(["device", "wifi", "hotspot", "ifname", "wlan0", "ssid", "LinuxHotspot", "password", "12345678"])
+                .args([
+                    "device",
+                    "wifi",
+                    "hotspot",
+                    "ifname",
+                    "wlan0",
+                    "ssid",
+                    "LinuxHotspot",
+                    "password",
+                    "12345678",
+                ])
                 .output()?;
         } else {
             let _ = std::process::Command::new("nmcli")

@@ -104,11 +104,25 @@ impl PowerBackend for UPowerBackend {
         }
 
         let mut power_button_action = "poweroff".to_string();
-        let idle_delay = std::process::Command::new("gsettings").args(["get", "org.gnome.desktop.session", "idle-delay"]).output().ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().split(" ").last().unwrap_or("").parse::<u32>().ok());
+        let idle_delay = std::process::Command::new("gsettings")
+            .args(["get", "org.gnome.desktop.session", "idle-delay"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .trim()
+                    .split(" ")
+                    .last()
+                    .unwrap_or("")
+                    .parse::<u32>()
+                    .ok()
+            });
         let mut lid_action = "suspend".to_string();
 
         let try_read = |path: &str| -> Option<String> { std::fs::read_to_string(path).ok() };
-        if let Some(content) = try_read("/etc/systemd/logind.conf.d/settings-tui-powerkey.conf").or_else(|| try_read("/etc/systemd/logind.conf")) {
+        if let Some(content) = try_read("/etc/systemd/logind.conf.d/settings-tui-powerkey.conf")
+            .or_else(|| try_read("/etc/systemd/logind.conf"))
+        {
             for line in content.lines() {
                 let l = line.trim();
                 if l.starts_with("HandlePowerKey=") {
@@ -120,7 +134,9 @@ impl PowerBackend for UPowerBackend {
                 }
             }
         }
-        if let Some(content) = try_read("/etc/systemd/logind.conf.d/settings-tui-lid.conf").or_else(|| try_read("/etc/systemd/logind.conf")) {
+        if let Some(content) = try_read("/etc/systemd/logind.conf.d/settings-tui-lid.conf")
+            .or_else(|| try_read("/etc/systemd/logind.conf"))
+        {
             for line in content.lines() {
                 let l = line.trim();
                 if l.starts_with("HandleLidSwitch=") {
@@ -180,10 +196,14 @@ impl PowerBackend for UPowerBackend {
                 .arg(format!("echo {} > {}", limit, p.display()))
                 .status()?;
             if !status.success() {
-                return Err(anyhow::anyhow!("Failed to set charge limit (authentication failed or permission denied)"));
+                return Err(anyhow::anyhow!(
+                    "Failed to set charge limit (authentication failed or permission denied)"
+                ));
             }
         } else {
-            return Err(anyhow::anyhow!("Battery charge limit is not supported on this device"));
+            return Err(anyhow::anyhow!(
+                "Battery charge limit is not supported on this device"
+            ));
         }
         Ok(())
     }
@@ -208,7 +228,12 @@ impl PowerBackend for UPowerBackend {
 
     async fn set_idle_delay(&self, seconds: u32) -> Result<()> {
         let _ = std::process::Command::new("gsettings")
-            .args(["set", "org.gnome.desktop.session", "idle-delay", &seconds.to_string()])
+            .args([
+                "set",
+                "org.gnome.desktop.session",
+                "idle-delay",
+                &seconds.to_string(),
+            ])
             .output();
         Ok(())
     }

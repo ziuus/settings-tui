@@ -149,11 +149,15 @@ impl DisplayBackend for GenericDisplayBackend {
         _height: i32,
         _refresh: f64,
     ) -> Result<()> {
-        Err(anyhow::anyhow!("Resolution switching requires Hyprland compositor"))
+        Err(anyhow::anyhow!(
+            "Resolution switching requires Hyprland compositor"
+        ))
     }
 
     async fn set_scale(&self, _name: &str, _scale: f64) -> Result<()> {
-        Err(anyhow::anyhow!("Display scaling is not supported on this generic backend."))
+        Err(anyhow::anyhow!(
+            "Display scaling is not supported on this generic backend."
+        ))
     }
 
     async fn get_brightness(&self) -> Result<Option<u32>> {

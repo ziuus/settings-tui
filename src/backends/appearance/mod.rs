@@ -28,7 +28,11 @@ impl GsettingsBackend {
         }
     }
 
-    fn scan_theme_dirs(dirs: &[std::path::PathBuf], require_index: bool, require_cursors: bool) -> Vec<String> {
+    fn scan_theme_dirs(
+        dirs: &[std::path::PathBuf],
+        require_index: bool,
+        require_cursors: bool,
+    ) -> Vec<String> {
         let mut themes = Vec::new();
         for dir in dirs {
             if let Ok(entries) = std::fs::read_dir(dir) {
@@ -87,7 +91,10 @@ impl AppearanceBackend for GsettingsBackend {
 
         let mut available_cursor_themes = Self::scan_theme_dirs(&icon_dirs, false, true);
         let cursor_theme = Self::get_key("org.gnome.desktop.interface", "cursor-theme");
-        if !cursor_theme.is_empty() && cursor_theme != "Unknown" && !available_cursor_themes.contains(&cursor_theme) {
+        if !cursor_theme.is_empty()
+            && cursor_theme != "Unknown"
+            && !available_cursor_themes.contains(&cursor_theme)
+        {
             available_cursor_themes.insert(0, cursor_theme.clone());
         }
         let mut available_icon_themes = Self::scan_theme_dirs(&icon_dirs, true, false);
@@ -206,25 +213,37 @@ impl AppearanceBackend for GsettingsBackend {
         let path_str = if path_obj.is_absolute() {
             path.to_string()
         } else {
-            std::fs::canonicalize(path_obj).unwrap_or(path_obj.to_path_buf()).display().to_string()
+            std::fs::canonicalize(path_obj)
+                .unwrap_or(path_obj.to_path_buf())
+                .display()
+                .to_string()
         };
-        let uri = if path_str.starts_with("file://") { path_str.to_string() } else { format!("file://{}", path_str) };
+        let uri = if path_str.starts_with("file://") {
+            path_str.to_string()
+        } else {
+            format!("file://{}", path_str)
+        };
         let _ = std::process::Command::new("gsettings")
             .args(["set", "org.gnome.desktop.background", "picture-uri", &uri])
             .output();
         let _ = std::process::Command::new("gsettings")
-            .args(["set", "org.gnome.desktop.background", "picture-uri-dark", &uri])
+            .args([
+                "set",
+                "org.gnome.desktop.background",
+                "picture-uri-dark",
+                &uri,
+            ])
             .output();
-        
+
         // Also support hyprpaper
         if let Ok(mut cmd) = std::process::Command::new("hyprctl")
             .args(["hyprpaper", "wallpaper", &format!(",{}", path_str)])
-            .spawn() {
-                let _ = cmd.wait();
+            .spawn()
+        {
+            let _ = cmd.wait();
         }
         Ok(())
     }
-
 }
 #[cfg(test)]
 mod tests {
@@ -232,7 +251,9 @@ mod tests {
 
     #[test]
     fn test_scan_theme_dirs_nonexistent() {
-        let fake_dirs = vec![std::path::PathBuf::from("/nonexistent/directory/path/themes")];
+        let fake_dirs = vec![std::path::PathBuf::from(
+            "/nonexistent/directory/path/themes",
+        )];
         let themes = GsettingsBackend::scan_theme_dirs(&fake_dirs, false, false);
         assert!(themes.is_empty());
     }

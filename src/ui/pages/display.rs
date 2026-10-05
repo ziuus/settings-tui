@@ -76,7 +76,8 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
     } else {
         for (i, m) in app.monitors.iter().enumerate() {
             let res_selected = content_active && (i * 2 + monitor_offset) == app.selected_item;
-            let scale_selected = content_active && (i * 2 + 1 + monitor_offset) == app.selected_item;
+            let scale_selected =
+                content_active && (i * 2 + 1 + monitor_offset) == app.selected_item;
 
             let mut title = m.name.clone();
             if m.primary {

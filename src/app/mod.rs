@@ -828,7 +828,6 @@ impl App {
             return;
         }
 
-        
         if self.wallpaper_modal.is_some() {
             match key.code {
                 KeyCode::Esc => {
@@ -1011,11 +1010,16 @@ impl App {
                                         tx.try_send(BackendCommand::SetPointerSensitivity(new_val));
                                 }
                             }
-                        
                         } else if cat == "Power" {
                             let mut row_idx = 1;
-                            let has_limit = self.power_info.as_ref().and_then(|info| info.charge_limit).is_some();
-                            if has_limit { row_idx += 1; }
+                            let has_limit = self
+                                .power_info
+                                .as_ref()
+                                .and_then(|info| info.charge_limit)
+                                .is_some();
+                            if has_limit {
+                                row_idx += 1;
+                            }
                             let btn_idx = row_idx;
                             row_idx += 1;
                             let lid_idx = row_idx;
@@ -1023,7 +1027,8 @@ impl App {
                             let idle_idx = row_idx;
                             if self.selected_item == btn_idx {
                                 if let Some(tx) = &self.cmd_tx {
-                                    let _ = tx.try_send(BackendCommand::CyclePowerButtonAction(true));
+                                    let _ =
+                                        tx.try_send(BackendCommand::CyclePowerButtonAction(true));
                                 }
                             } else if self.selected_item == lid_idx {
                                 if let Some(tx) = &self.cmd_tx {
@@ -1044,10 +1049,20 @@ impl App {
                                     let _ = tx.try_send(BackendCommand::CycleCursorTheme(true));
                                 }
                             } else if self.selected_item == 4 {
-                                let current = self.appearance_info.as_ref().map(|s| s.font_name.clone()).unwrap_or_default();
+                                let current = self
+                                    .appearance_info
+                                    .as_ref()
+                                    .map(|s| s.font_name.clone())
+                                    .unwrap_or_default();
                                 self.font_modal = Some(current);
                             } else if self.selected_item == 5 {
-                                let current = self.appearance_info.as_ref().and_then(|s| s.wallpaper.clone()).unwrap_or_default().trim_start_matches("file://").to_string();
+                                let current = self
+                                    .appearance_info
+                                    .as_ref()
+                                    .and_then(|s| s.wallpaper.clone())
+                                    .unwrap_or_default()
+                                    .trim_start_matches("file://")
+                                    .to_string();
                                 self.wallpaper_modal = Some(current);
                             } else if self.selected_item == 2 {
                                 if let Some(tx) = &self.cmd_tx {
@@ -1088,11 +1103,18 @@ impl App {
                                 }
                             }
                             return;
-                        
-                        } else if (key.code == KeyCode::Left || key.code == KeyCode::Char('h')) && cat == "Power" {
+                        } else if (key.code == KeyCode::Left || key.code == KeyCode::Char('h'))
+                            && cat == "Power"
+                        {
                             let mut row_idx = 1;
-                            let has_limit = self.power_info.as_ref().and_then(|info| info.charge_limit).is_some();
-                            if has_limit { row_idx += 1; }
+                            let has_limit = self
+                                .power_info
+                                .as_ref()
+                                .and_then(|info| info.charge_limit)
+                                .is_some();
+                            if has_limit {
+                                row_idx += 1;
+                            }
                             let btn_idx = row_idx;
                             row_idx += 1;
                             let lid_idx = row_idx;
@@ -1100,7 +1122,8 @@ impl App {
                             let idle_idx = row_idx;
                             if self.selected_item == btn_idx {
                                 if let Some(tx) = &self.cmd_tx {
-                                    let _ = tx.try_send(BackendCommand::CyclePowerButtonAction(false));
+                                    let _ =
+                                        tx.try_send(BackendCommand::CyclePowerButtonAction(false));
                                 }
                                 return;
                             } else if self.selected_item == lid_idx {
@@ -1128,10 +1151,20 @@ impl App {
                                 }
                                 return;
                             } else if self.selected_item == 4 {
-                                let current = self.appearance_info.as_ref().map(|s| s.font_name.clone()).unwrap_or_default();
+                                let current = self
+                                    .appearance_info
+                                    .as_ref()
+                                    .map(|s| s.font_name.clone())
+                                    .unwrap_or_default();
                                 self.font_modal = Some(current);
                             } else if self.selected_item == 5 {
-                                let current = self.appearance_info.as_ref().and_then(|s| s.wallpaper.clone()).unwrap_or_default().trim_start_matches("file://").to_string();
+                                let current = self
+                                    .appearance_info
+                                    .as_ref()
+                                    .and_then(|s| s.wallpaper.clone())
+                                    .unwrap_or_default()
+                                    .trim_start_matches("file://")
+                                    .to_string();
                                 self.wallpaper_modal = Some(current);
                                 return;
                             } else if self.selected_item == 2 {
@@ -1230,16 +1263,20 @@ impl App {
                             } else if self.selected_item == 1 {
                                 if let Some(enabled) = self.flight_mode_enabled {
                                     if let Some(tx) = &self.cmd_tx {
-                                        let _ = tx.try_send(BackendCommand::ToggleFlightMode(!enabled));
+                                        let _ =
+                                            tx.try_send(BackendCommand::ToggleFlightMode(!enabled));
                                     }
                                 }
                             } else if self.selected_item == 2 {
                                 if let Some(enabled) = self.hotspot_enabled {
                                     if let Some(tx) = &self.cmd_tx {
-                                        let _ = tx.try_send(BackendCommand::ToggleHotspot(!enabled));
+                                        let _ =
+                                            tx.try_send(BackendCommand::ToggleHotspot(!enabled));
                                     }
                                 }
-                            } else if self.selected_item >= 3 && self.selected_item - 3 < self.networks.len() {
+                            } else if self.selected_item >= 3
+                                && self.selected_item - 3 < self.networks.len()
+                            {
                                 let net = &self.networks[self.selected_item - 3];
                                 if net.connected {
                                     if let Some(tx) = &self.cmd_tx {
@@ -1365,22 +1402,37 @@ impl App {
                                     let _ = tx.try_send(BackendCommand::CycleCursorTheme(true));
                                 }
                             } else if self.selected_item == 4 {
-                                let current = self.appearance_info.as_ref().map(|s| s.font_name.clone()).unwrap_or_default();
+                                let current = self
+                                    .appearance_info
+                                    .as_ref()
+                                    .map(|s| s.font_name.clone())
+                                    .unwrap_or_default();
                                 self.font_modal = Some(current);
                             } else if self.selected_item == 5 {
-                                let current = self.appearance_info.as_ref().and_then(|s| s.wallpaper.clone()).unwrap_or_default().trim_start_matches("file://").to_string();
+                                let current = self
+                                    .appearance_info
+                                    .as_ref()
+                                    .and_then(|s| s.wallpaper.clone())
+                                    .unwrap_or_default()
+                                    .trim_start_matches("file://")
+                                    .to_string();
                                 self.wallpaper_modal = Some(current);
                             } else if self.selected_item == 2 {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CycleIconTheme(true));
                                 }
                             }
-                        
                         } else if cat == "Power" {
                             let mut row_idx = 1;
-                            let has_limit = self.power_info.as_ref().and_then(|info| info.charge_limit).is_some();
+                            let has_limit = self
+                                .power_info
+                                .as_ref()
+                                .and_then(|info| info.charge_limit)
+                                .is_some();
                             let limit_idx = if has_limit { Some(row_idx) } else { None };
-                            if has_limit { row_idx += 1; }
+                            if has_limit {
+                                row_idx += 1;
+                            }
                             let btn_idx = row_idx;
                             row_idx += 1;
                             let lid_idx = row_idx;
@@ -1396,13 +1448,15 @@ impl App {
                                     if let Some(limit) = info.charge_limit {
                                         let target = if limit < 100 { 100 } else { 80 };
                                         if let Some(tx) = &self.cmd_tx {
-                                            let _ = tx.try_send(BackendCommand::SetChargeLimit(target));
+                                            let _ =
+                                                tx.try_send(BackendCommand::SetChargeLimit(target));
                                         }
                                     }
                                 }
                             } else if self.selected_item == btn_idx {
                                 if let Some(tx) = &self.cmd_tx {
-                                    let _ = tx.try_send(BackendCommand::CyclePowerButtonAction(true));
+                                    let _ =
+                                        tx.try_send(BackendCommand::CyclePowerButtonAction(true));
                                 }
                             } else if self.selected_item == lid_idx {
                                 if let Some(tx) = &self.cmd_tx {
@@ -1413,7 +1467,7 @@ impl App {
                                     let _ = tx.try_send(BackendCommand::CycleIdleDelay(true));
                                 }
                             }
-} else if cat == "Applications"
+                        } else if cat == "Applications"
                             && self.selected_item < self.applications.len()
                         {
                             let app = &self.applications[self.selected_item];
@@ -1592,7 +1646,10 @@ impl App {
                                             (m.scale - 0.25).max(0.5)
                                         };
                                         if let Some(tx) = &self.cmd_tx {
-                                            let _ = tx.try_send(BackendCommand::SetDisplayScale(m.name.clone(), new_scale));
+                                            let _ = tx.try_send(BackendCommand::SetDisplayScale(
+                                                m.name.clone(),
+                                                new_scale,
+                                            ));
                                         }
                                     } else if !m.supported_modes.is_empty() {
                                         let _current_res = format!(
@@ -2120,7 +2177,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 }
                             }
                         }
-                        
+
                         BackendCommand::CyclePowerButtonAction(forward) => {
                             if let Some(pwr) = &power_backend_for_cmd {
                                 if let Ok(info) = pwr.get_info().await {
@@ -2983,7 +3040,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 }
                             }
                         }
-                        
+
                                                 BackendCommand::TestAudio => {
                             std::thread::spawn(|| {
                                 let _ = std::process::Command::new("speaker-test")

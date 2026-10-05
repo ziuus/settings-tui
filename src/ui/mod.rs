@@ -492,8 +492,12 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             )),
         ];
 
-        let modal_widget = Paragraph::new(modal_text)
-            .block(ratatui::widgets::Block::default().borders(ratatui::widgets::Borders::ALL).title(" Font Settings ").border_style(Style::default().fg(Color::Cyan)));
+        let modal_widget = Paragraph::new(modal_text).block(
+            ratatui::widgets::Block::default()
+                .borders(ratatui::widgets::Borders::ALL)
+                .title(" Font Settings ")
+                .border_style(Style::default().fg(Color::Cyan)),
+        );
         f.render_widget(modal_widget, modal_area);
     }
     if let Some(buf) = &app.hostname_modal {

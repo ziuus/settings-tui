@@ -59,21 +59,39 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
 
     let is_selected = content_active && app.selected_item == 0;
     let control = widgets::toggle(app.wifi_enabled, is_selected);
-    let wifi_lines = widgets::setting_row("Wi-Fi Radio", "Turn Wi-Fi radio on or off", control, is_selected, 60);
+    let wifi_lines = widgets::setting_row(
+        "Wi-Fi Radio",
+        "Turn Wi-Fi radio on or off",
+        control,
+        is_selected,
+        60,
+    );
     text.extend(wifi_lines);
     text.push(Line::from(""));
 
     let is_flight_selected = content_active && app.selected_item == 1;
     let flight_enabled = app.flight_mode_enabled.unwrap_or(false);
     let control = widgets::toggle(flight_enabled, is_flight_selected);
-    let flight_lines = widgets::setting_row("Flight Mode", "Disable all wireless communications", control, is_flight_selected, 60);
+    let flight_lines = widgets::setting_row(
+        "Flight Mode",
+        "Disable all wireless communications",
+        control,
+        is_flight_selected,
+        60,
+    );
     text.extend(flight_lines);
     text.push(Line::from(""));
 
     let is_hotspot_selected = content_active && app.selected_item == 2;
     let hotspot_enabled = app.hotspot_enabled.unwrap_or(false);
     let control = widgets::toggle(hotspot_enabled, is_hotspot_selected);
-    let hotspot_lines = widgets::setting_row("Wi-Fi Hotspot", "Share your internet connection with other devices", control, is_hotspot_selected, 60);
+    let hotspot_lines = widgets::setting_row(
+        "Wi-Fi Hotspot",
+        "Share your internet connection with other devices",
+        control,
+        is_hotspot_selected,
+        60,
+    );
     text.extend(hotspot_lines);
     text.push(Line::from(""));
 
