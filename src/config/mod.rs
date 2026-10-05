@@ -9,6 +9,7 @@ pub struct SettingsConfig {
     pub poll_interval_secs: u64,
     pub telemetry_enabled: bool,
     pub machine_id: String,
+    pub sponsor_api_url: Option<String>,
 }
 
 impl Default for SettingsConfig {
@@ -20,6 +21,7 @@ impl Default for SettingsConfig {
             poll_interval_secs: 5,
             telemetry_enabled: true,
             machine_id: uuid::Uuid::new_v4().to_string(),
+            sponsor_api_url: None,
         }
     }
 }
@@ -121,7 +123,10 @@ mod tests {
     fn test_config_load_nonexistent_returns_default() {
         let non_existent = Path::new("/tmp/definitely_not_a_valid_config_file_path_123.json");
         let cfg = SettingsConfig::load(Some(non_existent));
-        let def = SettingsConfig { machine_id: cfg.machine_id.clone(), ..Default::default() };
+        let def = SettingsConfig {
+            machine_id: cfg.machine_id.clone(),
+            ..Default::default()
+        };
         assert_eq!(cfg, def);
     }
 }

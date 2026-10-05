@@ -1780,10 +1780,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     let app = Arc::new(Mutex::new(initial_app));
     let app_clone_sponsor = app.clone();
+    let api_url = cfg.sponsor_api_url.clone().unwrap_or_else(|| "https://settings-tui.vercel.app/api/sponsor".to_string());
+
     
     tokio::spawn(async move {
         let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(3)).build().unwrap_or_default();
-        if let Ok(resp) = client.get("https://settings-tui.vercel.app/api/sponsor").send().await {
+        if let Ok(resp) = client.get(&api_url).send().await {
             if let Ok(json) = resp.json::<serde_json::Value>().await {
                 if let Some(enabled) = json.get("enabled").and_then(|v| v.as_bool()) {
                     if enabled {
