@@ -1,6 +1,6 @@
 {
   "name": "settings-tui",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "A production-grade universal Linux Settings Center for the terminal.",
   "main": "bin/settings-tui.js",
   "bin": {
