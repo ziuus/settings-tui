@@ -104,22 +104,100 @@ impl PowerBackend for UPowerBackend {
         }
 
         let mut power_button_action = "poweroff".to_string();
-        let idle_delay = std::process::Command::new("gsettings")
+        let mut idle_delay = std::process::Command::new("gsettings")
             .args(["get", "org.gnome.desktop.session", "idle-delay"])
             .output()
             .ok()
             .and_then(|o| {
                 String::from_utf8_lossy(&o.stdout)
                     .trim()
-                    .split(" ")
-                    .last()
+                    .split(' ')
+                    .next_back()
                     .unwrap_or("")
                     .parse::<u32>()
                     .ok()
             });
-        let mut lid_action = "suspend".to_string();
+        if idle_delay.is_none() {
+            if let Some(path) = get_hypridle_conf_path() {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    idle_delay = parse_hypridle_timeout(&content, "dpms");
+                }
+            }
+        }
+
+        // Lock Screen Timeout
+        let mut lock_delay = None;
+        if let Some(path) = get_hypridle_conf_path() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                lock_delay = parse_hypridle_timeout(&content, "hyprlock");
+            }
+        }
+        if lock_delay.is_none() {
+            lock_delay = std::process::Command::new("gsettings")
+                .args(["get", "org.gnome.desktop.screensaver", "lock-delay"])
+                .output()
+                .ok()
+                .and_then(|o| {
+                    String::from_utf8_lossy(&o.stdout)
+                        .trim()
+                        .split(' ')
+                        .next_back()
+                        .unwrap_or("")
+                        .parse::<u32>()
+                        .ok()
+                });
+        }
+        if lock_delay.is_none() {
+            lock_delay = Some(0);
+        }
 
         let try_read = |path: &str| -> Option<String> { std::fs::read_to_string(path).ok() };
+
+        // Suspend Timeout
+        let mut suspend_delay = None;
+        if let Some(path) = get_hypridle_conf_path() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                suspend_delay = parse_hypridle_timeout(&content, "suspend");
+            }
+        }
+        if suspend_delay.is_none() {
+            if let Some(content) = try_read("/etc/systemd/logind.conf.d/settings-tui-suspend.conf")
+                .or_else(|| try_read("/etc/systemd/logind.conf"))
+            {
+                for line in content.lines() {
+                    let l = line.trim();
+                    if l.starts_with("IdleActionSec=") {
+                        let val = l.replace("IdleActionSec=", "");
+                        suspend_delay = parse_systemd_sec(&val);
+                    } else if l.starts_with("IdleAction=ignore") {
+                        suspend_delay = Some(0);
+                    }
+                }
+            }
+        }
+        if suspend_delay.is_none() {
+            suspend_delay = std::process::Command::new("gsettings")
+                .args([
+                    "get",
+                    "org.gnome.settings-daemon.plugins.power",
+                    "sleep-inactive-ac-timeout",
+                ])
+                .output()
+                .ok()
+                .and_then(|o| {
+                    let s = String::from_utf8_lossy(&o.stdout);
+                    s.trim()
+                        .split(' ')
+                        .next_back()
+                        .and_then(|v| v.parse::<u32>().ok())
+                });
+        }
+        if suspend_delay.is_none() {
+            suspend_delay = Some(0);
+        }
+
+        let mut lid_action = "suspend".to_string();
+
         if let Some(content) = try_read("/etc/systemd/logind.conf.d/settings-tui-powerkey.conf")
             .or_else(|| try_read("/etc/systemd/logind.conf"))
         {
@@ -164,6 +242,8 @@ impl PowerBackend for UPowerBackend {
             power_button_action,
             lid_action,
             idle_delay,
+            lock_delay,
+            suspend_delay,
         })
     }
 
@@ -223,6 +303,7 @@ impl PowerBackend for UPowerBackend {
     }
 
     async fn set_idle_delay(&self, seconds: u32) -> Result<()> {
+        let _ = set_hypridle_timeout("dpms", seconds, "hyprctl dispatch dpms off");
         let _ = std::process::Command::new("gsettings")
             .args([
                 "set",
@@ -233,6 +314,67 @@ impl PowerBackend for UPowerBackend {
             .output();
         Ok(())
     }
+
+    async fn set_lock_delay(&self, seconds: u32) -> Result<()> {
+        let lock_cmd = if let Some(path) = get_hypridle_conf_path() {
+            if let Ok(c) = std::fs::read_to_string(&path) {
+                c.lines()
+                    .find(|l| l.trim().starts_with("on-timeout") && l.contains("hyprlock"))
+                    .and_then(|l| l.split('=').nth(1))
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_else(|| "hyprlock".to_string())
+            } else {
+                "hyprlock".to_string()
+            }
+        } else {
+            "hyprlock".to_string()
+        };
+        let _ = set_hypridle_timeout("hyprlock", seconds, &lock_cmd);
+
+        let _ = std::process::Command::new("gsettings")
+            .args([
+                "set",
+                "org.gnome.desktop.screensaver",
+                "lock-delay",
+                &seconds.to_string(),
+            ])
+            .output();
+        Ok(())
+    }
+
+    async fn set_suspend_delay(&self, seconds: u32) -> Result<()> {
+        let _ = set_hypridle_timeout("suspend", seconds, "systemctl suspend");
+
+        let content = if seconds == 0 {
+            "[Login]\nIdleAction=ignore\n".to_string()
+        } else {
+            format!("[Login]\nIdleAction=suspend\nIdleActionSec={}s\n", seconds)
+        };
+        let _ = std::process::Command::new("pkexec")
+            .arg("sh")
+            .arg("-c")
+            .arg(format!("mkdir -p /etc/systemd/logind.conf.d && echo '{}' > /etc/systemd/logind.conf.d/settings-tui-suspend.conf && systemctl reload systemd-logind || systemctl restart systemd-logind", content))
+            .status();
+
+        let _ = std::process::Command::new("gsettings")
+            .args([
+                "set",
+                "org.gnome.settings-daemon.plugins.power",
+                "sleep-inactive-ac-timeout",
+                &seconds.to_string(),
+            ])
+            .output();
+        let _ = std::process::Command::new("gsettings")
+            .args([
+                "set",
+                "org.gnome.settings-daemon.plugins.power",
+                "sleep-inactive-battery-timeout",
+                &seconds.to_string(),
+            ])
+            .output();
+        Ok(())
+    }
+
     async fn set_lid_action(&self, action: &str) -> Result<()> {
         let content = format!("[Login]\nHandleLidSwitch={}\n", action);
         let status = std::process::Command::new("pkexec")
@@ -245,5 +387,102 @@ impl PowerBackend for UPowerBackend {
         } else {
             Err(anyhow::anyhow!("Failed to set lid action"))
         }
+    }
+}
+
+fn get_hypridle_conf_path() -> Option<std::path::PathBuf> {
+    std::env::var("HOME")
+        .ok()
+        .map(|h| std::path::PathBuf::from(h).join(".config/hypr/hypridle.conf"))
+}
+
+fn parse_hypridle_timeout(content: &str, keyword: &str) -> Option<u32> {
+    let mut in_listener = false;
+    let mut current_timeout = None;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("listener") && trimmed.contains('{') {
+            in_listener = true;
+            current_timeout = None;
+        } else if trimmed == "}" {
+            in_listener = false;
+        } else if in_listener {
+            if trimmed.starts_with("timeout") && trimmed.contains('=') {
+                if let Some(val_str) = trimmed.split('=').nth(1) {
+                    current_timeout = val_str.trim().parse::<u32>().ok();
+                }
+            } else if trimmed.starts_with("on-timeout") && trimmed.contains(keyword) {
+                if let Some(t) = current_timeout {
+                    return Some(t);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn set_hypridle_timeout(keyword: &str, seconds: u32, default_cmd: &str) -> Result<()> {
+    if let Some(path) = get_hypridle_conf_path() {
+        if path.exists() {
+            let content = std::fs::read_to_string(&path)?;
+            let mut lines: Vec<String> = Vec::new();
+            let mut in_listener = false;
+            let mut listener_lines: Vec<String> = Vec::new();
+            let mut found = false;
+
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("listener") && trimmed.contains('{') {
+                    in_listener = true;
+                    listener_lines.clear();
+                    listener_lines.push(line.to_string());
+                } else if in_listener {
+                    listener_lines.push(line.to_string());
+                    if trimmed == "}" {
+                        in_listener = false;
+                        let block_text = listener_lines.join("\n");
+                        if block_text.contains(keyword) {
+                            found = true;
+                            if seconds > 0 {
+                                lines.push("listener {".to_string());
+                                lines.push(format!("    timeout = {}", seconds));
+                                lines.push(format!("    on-timeout = {}", default_cmd));
+                                lines.push("}".to_string());
+                            }
+                        } else {
+                            lines.extend(listener_lines.clone());
+                        }
+                    }
+                } else {
+                    lines.push(line.to_string());
+                }
+            }
+
+            if !found && seconds > 0 {
+                lines.push("".to_string());
+                lines.push("listener {".to_string());
+                lines.push(format!("    timeout = {}", seconds));
+                lines.push(format!("    on-timeout = {}", default_cmd));
+                lines.push("}".to_string());
+            }
+
+            std::fs::write(&path, lines.join("\n"))?;
+        }
+    }
+    Ok(())
+}
+
+fn parse_systemd_sec(s: &str) -> Option<u32> {
+    let s = s.trim();
+    if let Some(num) = s.strip_suffix("min") {
+        num.parse::<u32>().ok().map(|m| m * 60)
+    } else if let Some(num) = s.strip_suffix('m') {
+        num.parse::<u32>().ok().map(|m| m * 60)
+    } else if let Some(num) = s.strip_suffix('h') {
+        num.parse::<u32>().ok().map(|h| h * 3600)
+    } else if let Some(num) = s.strip_suffix('s') {
+        num.parse::<u32>().ok()
+    } else {
+        s.parse::<u32>().ok()
     }
 }

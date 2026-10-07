@@ -215,6 +215,8 @@ pub struct PowerInfo {
     pub power_button_action: String,
     pub lid_action: String,
     pub idle_delay: Option<u32>,
+    pub lock_delay: Option<u32>,
+    pub suspend_delay: Option<u32>,
 }
 
 #[async_trait]
@@ -225,6 +227,8 @@ pub trait PowerBackend: Send + Sync {
     async fn set_power_button_action(&self, action: &str) -> Result<()>;
     async fn set_lid_action(&self, action: &str) -> Result<()>;
     async fn set_idle_delay(&self, seconds: u32) -> Result<()>;
+    async fn set_lock_delay(&self, seconds: u32) -> Result<()>;
+    async fn set_suspend_delay(&self, seconds: u32) -> Result<()>;
 }
 
 // Core definitions for Services

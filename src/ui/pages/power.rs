@@ -81,21 +81,63 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             is_lid_btn,
             60,
         ));
+        lines.push(Line::from(""));
+        row_idx += 1;
+
         let is_idle_btn = content_active && app.selected_item == row_idx;
         let idle_str = match info.idle_delay {
             Some(0) => "Never".to_string(),
+            Some(s) if s >= 3600 => format!("{} hour(s)", s / 3600),
+            Some(s) if s >= 60 => format!("{} minute(s)", s / 60),
             Some(s) => format!("{} seconds", s),
             None => "Unknown".to_string(),
         };
         let idle_control = widgets::value_selector(&idle_str, is_idle_btn);
         lines.extend(widgets::setting_row(
             "Display Sleep Timeout",
-            "Time before screen blanks",
+            "Time before screen blanks and turns off",
             idle_control,
             is_idle_btn,
             60,
         ));
         lines.push(Line::from(""));
+        row_idx += 1;
+
+        let is_lock_btn = content_active && app.selected_item == row_idx;
+        let lock_str = match info.lock_delay {
+            Some(0) => "Immediately".to_string(),
+            Some(s) if s >= 3600 => format!("{} hour(s)", s / 3600),
+            Some(s) if s >= 60 => format!("{} minute(s)", s / 60),
+            Some(s) => format!("{} seconds", s),
+            None => "Disabled / Never".to_string(),
+        };
+        let lock_control = widgets::value_selector(&lock_str, is_lock_btn);
+        lines.extend(widgets::setting_row(
+            "Screen Lock Timeout",
+            "Time after screen blanks before lock activates",
+            lock_control,
+            is_lock_btn,
+            60,
+        ));
+        lines.push(Line::from(""));
+        row_idx += 1;
+
+        let is_suspend_btn = content_active && app.selected_item == row_idx;
+        let suspend_str = match info.suspend_delay {
+            Some(0) => "Never".to_string(),
+            Some(s) if s >= 3600 => format!("{} hour(s)", s / 3600),
+            Some(s) if s >= 60 => format!("{} minute(s)", s / 60),
+            Some(s) => format!("{} seconds", s),
+            None => "Never".to_string(),
+        };
+        let suspend_control = widgets::value_selector(&suspend_str, is_suspend_btn);
+        lines.extend(widgets::setting_row(
+            "Automatic Suspend Timeout",
+            "Idle time before system enters sleep state",
+            suspend_control,
+            is_suspend_btn,
+            60,
+        ));
         lines.push(Line::from(""));
 
         lines.push(Line::from(Span::styled(
