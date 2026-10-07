@@ -46,6 +46,7 @@ macro_rules! execute_transaction {
 
 pub enum AppEvent {
     Input(event::KeyEvent),
+    MouseInput(event::MouseEvent),
     Tick,
     UpdateSystemInfo(SystemInfo),
     UpdateNetworks(bool, Vec<Network>),
@@ -688,29 +689,35 @@ impl App {
         // Search System Settings & Actions
         let sys_actions = [
             (
+                "System Updates",
+                "Check for system software updates",
+                "update upgrade software packages",
+                0,
+            ),
+            (
                 "Network Time (NTP)",
                 "Synchronize system clock with network time servers",
                 "ntp time clock timedate timezone",
-                0,
+                1,
             ),
             (
                 "Suspend",
                 "Suspend system to RAM (sleep mode)",
                 "sleep standby",
-                1,
+                2,
             ),
             (
                 "Hibernate",
                 "Hibernate system state to disk",
                 "hibernate disk",
-                2,
+                3,
             ),
-            ("Reboot", "Restart the computer", "restart reboot", 3),
+            ("Reboot", "Restart the computer", "restart reboot", 4),
             (
                 "Power Off",
                 "Shut down the computer system",
                 "shutdown poweroff halt power off",
-                4,
+                5,
             ),
         ];
 
@@ -1730,6 +1737,13 @@ impl App {
                             }
                         } else if cat == "System" {
                             if self.selected_item == 0 {
+                                // System Updates (Not fully implemented in backend yet)
+                                if is_enter {
+                                    self.notifications.push(
+                                        "System updates check is not yet implemented.".to_string(),
+                                    );
+                                }
+                            } else if self.selected_item == 1 {
                                 if let Some(sys_info) = &self.system_info {
                                     let new_state = !sys_info.ntp_active;
                                     if let Some(tx) = &self.cmd_tx {
@@ -1738,13 +1752,13 @@ impl App {
                                 }
                             } else if is_enter {
                                 let (action, prompt) = match self.selected_item {
-                                    1 => ("suspend", "Suspend the system to RAM now?"),
-                                    2 => ("hibernate", "Hibernate session to swap and power off?"),
-                                    3 => (
+                                    2 => ("suspend", "Suspend the system to RAM now?"),
+                                    3 => ("hibernate", "Hibernate session to swap and power off?"),
+                                    4 => (
                                         "reboot",
                                         "Restart the computer now? (Unsaved work will be lost)",
                                     ),
-                                    4 => (
+                                    5 => (
                                         "poweroff",
                                         "Shut down and power off the computer? (Unsaved work will be lost)",
                                     ),
@@ -2011,6 +2025,15 @@ impl App {
             _ => {}
         }
     }
+
+    pub fn handle_mouse(&mut self, mouse: event::MouseEvent) {
+        if self.input_test_modal {
+            self.input_test_events.push(format!("Mouse: {:?}", mouse));
+            if self.input_test_events.len() > 10 {
+                self.input_test_events.remove(0);
+            }
+        }
+    }
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
@@ -2123,9 +2146,19 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     tokio::spawn(async move {
         loop {
             if event::poll(Duration::from_millis(50)).unwrap_or(false) {
-                if let Ok(CrosstermEvent::Key(key)) = event::read() {
-                    if tx_input.send(AppEvent::Input(key)).await.is_err() {
-                        break;
+                if let Ok(evt) = event::read() {
+                    match evt {
+                        CrosstermEvent::Key(key)
+                            if tx_input.send(AppEvent::Input(key)).await.is_err() =>
+                        {
+                            break;
+                        }
+                        CrosstermEvent::Mouse(mouse)
+                            if tx_input.send(AppEvent::MouseInput(mouse)).await.is_err() =>
+                        {
+                            break;
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -3738,6 +3771,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
             let mut app_lock = app.lock().await;
             match event {
                 AppEvent::Input(key) => app_lock.handle_key(key),
+                AppEvent::MouseInput(mouse) => app_lock.handle_mouse(mouse),
                 AppEvent::Tick => app_lock.on_tick(),
                 AppEvent::UpdateSystemInfo(info) => app_lock.system_info = Some(info),
                 AppEvent::UpdateNetworks(enabled, nets) => {
@@ -4014,7 +4048,7 @@ mod tests {
         let sys_idx = app.categories.iter().position(|c| c == "System").unwrap();
         app.selected_category = sys_idx;
         app.focus = Focus::Content;
-        app.selected_item = 4; // "Power Off" (index 4)
+        app.selected_item = 5; // "Power Off" (index 5)
 
         // Space key must NOT trigger power action confirmation or execution
         app.handle_key(press(KeyCode::Char(' ')));
@@ -4039,7 +4073,7 @@ mod tests {
 
         // Cancel and test Reboot distinct prompt
         app.confirm_action = None;
-        app.selected_item = 3; // Reboot (index 3)
+        app.selected_item = 4; // Reboot (index 4)
         app.handle_key(press(KeyCode::Enter));
         let reboot_prompt = app.confirm_action.as_ref().unwrap().0.clone();
         assert!(
@@ -4101,13 +4135,13 @@ mod tests {
         assert!(!app.search_results.is_empty());
         assert_eq!(app.search_results[0].title, "Power Off");
         assert_eq!(app.search_results[0].category, "System");
-        assert_eq!(app.search_results[0].target_item_idx, 4);
+        assert_eq!(app.search_results[0].target_item_idx, 5);
 
         app.search_query = "reboot".to_string();
         app.update_search_results();
         assert_eq!(app.search_results[0].title, "Reboot");
         assert_eq!(app.search_results[0].category, "System");
-        assert_eq!(app.search_results[0].target_item_idx, 3);
+        assert_eq!(app.search_results[0].target_item_idx, 4);
     }
 
     #[test]
@@ -4137,7 +4171,7 @@ mod tests {
             app.selected_category, sys_idx,
             "Should navigate to System category"
         );
-        assert_eq!(app.selected_item, 3, "Should target Reboot item index");
+        assert_eq!(app.selected_item, 4, "Should target Reboot item index");
     }
 
     #[test]
@@ -4228,7 +4262,7 @@ mod tests {
         let sys_idx = app.categories.iter().position(|c| c == "System").unwrap();
         app.selected_category = sys_idx;
         app.focus = Focus::Content;
-        app.selected_item = 0; // NTP item
+        app.selected_item = 1; // NTP item
 
         app.system_info = Some(SystemInfo {
             hostname: "test-host".to_string(),
@@ -4248,7 +4282,7 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(10);
         app.cmd_tx = Some(tx);
 
-        // Press Enter on item 0
+        // Press Enter on item 1
         app.handle_key(press(KeyCode::Enter));
         if let Ok(BackendCommand::ToggleNTP(active)) = rx.try_recv() {
             assert!(!active, "Toggling active NTP should set to false");
