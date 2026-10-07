@@ -93,6 +93,7 @@ pub enum BackendCommand {
     ToggleHotspot(bool),
     SetDisplayResolution(String, i32, i32, f64),
     SetDisplayScale(String, f64),
+    CycleMonitorMode(String, bool),
     SetDisplayBrightness(u32),
     ConnectNetwork(crate::backends::NetworkId, bool),
     ConnectNetworkWithPassword(crate::backends::NetworkId, String),
@@ -183,6 +184,8 @@ pub struct App {
     pub confirm_action: Option<(String, BackendCommand)>,
     pub password_modal: Option<PasswordModal>,
     pub hostname_modal: Option<String>,
+    pub input_test_modal: bool,
+    pub input_test_events: Vec<String>,
     pub font_modal: Option<String>,
     pub wallpaper_modal: Option<String>, // editing buffer for new hostname
     pub capabilities: crate::platform::PlatformCapabilities,
@@ -216,6 +219,8 @@ impl App {
             confirm_action: None,
             password_modal: None,
             hostname_modal: None,
+            input_test_modal: false,
+            input_test_events: Vec::new(),
             font_modal: None,
             wallpaper_modal: None,
             capabilities: crate::platform::PlatformCapabilities::detect(
@@ -602,6 +607,38 @@ impl App {
             });
         }
 
+        // Detailed Power Search
+        let has_limit = self.power_info.as_ref().and_then(|info| info.charge_limit).is_some();
+        let mut pwr_idx = 1;
+        if has_limit { pwr_idx += 1; }
+        let btn_idx = pwr_idx; pwr_idx += 1;
+        let lid_idx = pwr_idx; pwr_idx += 1;
+        let idle_idx = pwr_idx; pwr_idx += 1;
+        let lock_idx = pwr_idx; pwr_idx += 1;
+        let suspend_idx = pwr_idx;
+
+        let mut add_pwr_search = |title: &str, desc: &str, extra: &str, idx: usize| {
+            let s = calc_score(title, "Power", desc, extra, &q);
+            if s > 0 {
+                self.search_results.push(SearchResult {
+                    title: title.to_string(),
+                    category: "Power".to_string(),
+                    description: desc.to_string(),
+                    target_item_idx: idx,
+                    score: s,
+                });
+            }
+        };
+        
+        if has_limit {
+            add_pwr_search("Battery Charge Limit", "Conservation mode active (limits charge)", "charge threshold", 1);
+        }
+        add_pwr_search("Power Button Action", "Action when hardware power button is pressed", "power key hardware", btn_idx);
+        add_pwr_search("Lid Switch Action", "Action when laptop lid is closed", "lid close laptop flap", lid_idx);
+        add_pwr_search("Display Sleep Timeout", "Time before screen blanks and turns off", "idle delay blank monitor off", idle_idx);
+        add_pwr_search("Screen Lock Timeout", "Time after screen blanks before lock activates", "lock delay screen password auth", lock_idx);
+        add_pwr_search("Automatic Suspend Timeout", "Idle time before system enters sleep state", "suspend delay sleep ram standby", suspend_idx);
+
         // Search System Settings & Actions
         let sys_actions = [
             (
@@ -966,6 +1003,18 @@ impl App {
             return;
         }
 
+        if self.input_test_modal {
+            if key.code == KeyCode::Esc {
+                self.input_test_modal = false;
+            } else {
+                self.input_test_events.push(format!("Key: {:?}", key));
+                if self.input_test_events.len() > 10 {
+                    self.input_test_events.remove(0);
+                }
+            }
+            return;
+        }
+        
         if self.is_searching {
             match key.code {
                 KeyCode::Esc => {
@@ -1288,7 +1337,7 @@ impl App {
                                 } else {
                                     0
                                 };
-                                base + self.monitors.len() * 2
+                                base + self.monitors.len() * 3
                             }
                             "Power" => {
                                 let has_limit = self
@@ -1673,6 +1722,17 @@ impl App {
                     }
                 }
             }
+            KeyCode::Char('t') | KeyCode::Char('T') => {
+                let vis = self.visible_categories();
+                if self.focus == Focus::Content {
+                    if let Some(cat) = vis.get(self.selected_category) {
+                        if cat == "Mouse & Touchpad" {
+                            self.input_test_modal = true;
+                            self.input_test_events.clear();
+                        }
+                    }
+                }
+            }
             KeyCode::Char('s') | KeyCode::Char('S') => {
                 let vis = self.visible_categories();
                 if self.focus == Focus::Content {
@@ -1767,11 +1827,17 @@ impl App {
                                 let offset = (if has_brightness { 1 } else { 0 })
                                     + (if has_nl { 1 } else { 0 });
                                 let sel_offset = self.selected_item.saturating_sub(offset);
-                                let mon_idx = sel_offset / 2;
-                                let is_scale = (sel_offset % 2) != 0;
+                                let mon_idx = sel_offset / 3;
+                                let is_mode = (sel_offset % 3) == 0;
+                                let _is_res = (sel_offset % 3) == 1;
+                                let is_scale = (sel_offset % 3) == 2;
                                 if mon_idx < self.monitors.len() {
                                     let m = &self.monitors[mon_idx];
-                                    if is_scale {
+                                    if is_mode {
+                                        if let Some(tx) = &self.cmd_tx {
+                                            let _ = tx.try_send(BackendCommand::CycleMonitorMode(m.name.clone(), increase));
+                                        }
+                                    } else if is_scale {
                                         let new_scale = if increase {
                                             (m.scale + 0.25).min(3.0)
                                         } else {
@@ -2264,6 +2330,49 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 }
                                 if let Ok(actual_mons) = final_state {
                                     let _ = tx_cmd_resp.send(AppEvent::UpdateMonitors(actual_mons)).await;
+                                }
+                            }
+                        }
+
+
+                        BackendCommand::CycleMonitorMode(name, forward) => {
+                            if let Some(disp) = &display_backend_for_cmd {
+                                if let Ok(monitors) = disp.get_monitors().await {
+                                    if let Some(m) = monitors.iter().find(|m| m.name == name) {
+                                        let mut modes = vec!["extend".to_string(), "disable".to_string()];
+                                        for other in &monitors {
+                                            if other.name != name {
+                                                modes.push(format!("mirror {}", other.name));
+                                            }
+                                        }
+                                        
+                                        let current = if !m.active {
+                                            "disable".to_string()
+                                        } else if let Some(t) = &m.mirror_of {
+                                            format!("mirror {}", t)
+                                        } else {
+                                            "extend".to_string()
+                                        };
+                                        
+                                        let current_idx = modes.iter().position(|x| x == &current).unwrap_or(0);
+                                        let next_idx = if forward {
+                                            (current_idx + 1) % modes.len()
+                                        } else {
+                                            if current_idx == 0 { modes.len() - 1 } else { current_idx - 1 }
+                                        };
+                                        let next_mode_str = &modes[next_idx];
+                                        
+                                        let (mode, mirror_target) = if next_mode_str.starts_with("mirror ") {
+                                            ("mirror", Some(next_mode_str.trim_start_matches("mirror ")))
+                                        } else {
+                                            (next_mode_str.as_str(), None)
+                                        };
+                                        
+                                        let _ = disp.set_monitor_mode(&name, mode, mirror_target).await;
+                                        if let Ok(new_monitors) = disp.get_monitors().await {
+                                            let _ = tx_cmd_resp.send(AppEvent::UpdateMonitors(new_monitors)).await;
+                                        }
+                                    }
                                 }
                             }
                         }

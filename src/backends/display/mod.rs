@@ -45,8 +45,9 @@ impl DisplayBackend for HyprlandBackend {
                     refresh_rate: m["refreshRate"].as_f64().unwrap_or(60.0),
                     scale: m["scale"].as_f64().unwrap_or(1.0),
                     active: m["disabled"].as_bool().map(|d| !d).unwrap_or(true),
-                    primary: false, // hyprland doesn't explicitly track primary in the same way, assume index 0 or focused
+                    primary: false,
                     supported_modes,
+                    mirror_of: m.get("mirrorOf").and_then(|v| v.as_str()).filter(|v| *v != "none").map(|v| v.to_string()),
                 });
             }
         }
@@ -85,6 +86,42 @@ impl DisplayBackend for HyprlandBackend {
             Ok(())
         } else {
             Err(anyhow!("Failed to set resolution"))
+        }
+    }
+
+    async fn set_monitor_mode(&self, name: &str, mode: &str, mirror_target: Option<&str>) -> Result<()> {
+        let (mon_res, mon_scale) = if let Ok(monitors) = self.get_monitors().await {
+            if let Some(m) = monitors.into_iter().find(|m| m.name == name) {
+                (format!("{}x{}@{}", m.width, m.height, m.refresh_rate), m.scale)
+            } else {
+                return Err(anyhow::anyhow!("Monitor not found"));
+            }
+        } else {
+            return Err(anyhow::anyhow!("Failed to read monitors"));
+        };
+
+        let arg = match mode {
+            "disable" => format!("{},disable", name),
+            "mirror" => {
+                if let Some(target) = mirror_target {
+                    format!("{},{},auto,{},mirror,{}", name, mon_res, mon_scale, target)
+                } else {
+                    return Err(anyhow::anyhow!("No mirror target provided"));
+                }
+            }
+            _ => format!("{},{},auto,{}", name, mon_res, mon_scale),
+        };
+
+        let status = std::process::Command::new("hyprctl")
+            .arg("keyword")
+            .arg("monitor")
+            .arg(arg)
+            .status()?;
+        
+        if status.success() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("hyprctl failed to set monitor mode"))
         }
     }
 
@@ -158,6 +195,9 @@ impl DisplayBackend for GenericDisplayBackend {
         Err(anyhow::anyhow!(
             "Display scaling is not supported on this generic backend."
         ))
+    }
+    async fn set_monitor_mode(&self, _name: &str, _mode: &str, _mirror_target: Option<&str>) -> Result<()> {
+        Err(anyhow::anyhow!("Not supported on generic backend"))
     }
 
     async fn get_brightness(&self) -> Result<Option<u32>> {

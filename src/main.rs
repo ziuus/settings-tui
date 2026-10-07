@@ -48,11 +48,45 @@ pub struct Args {
         help = "Custom path to configuration file (default: ~/.config/settings-tui/config.json)"
     )]
     pub config: Option<String>,
+
+    #[arg(short = 'v', help = "Print version information")]
+    pub version_flag: bool,
+
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+}
+
+#[derive(clap::Subcommand, Debug)]
+pub enum Commands {
+    /// Update settings-tui to the latest version
+    Update,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
+
+    if args.version_flag {
+        println!("settings-tui {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
+    if let Some(Commands::Update) = args.command {
+        println!("Updating settings-tui to the latest version from git...");
+        let status = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("cd ~/Projects/settings-tui && git pull && cargo build --release && cp target/release/settings-tui ~/.cargo/bin/ || echo 'You may need to manually copy the binary to your PATH'")
+            .status();
+        match status {
+            Ok(s) if s.success() => {
+                println!("Update successful!");
+            }
+            _ => {
+                eprintln!("Update failed.");
+            }
+        }
+        return Ok(());
+    }
 
     if args.diagnose {
         println!("Checking Linux platform and backend capabilities...\n");

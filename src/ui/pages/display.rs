@@ -75,9 +75,10 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         )));
     } else {
         for (i, m) in app.monitors.iter().enumerate() {
-            let res_selected = content_active && (i * 2 + monitor_offset) == app.selected_item;
+            let mode_selected = content_active && (i * 3 + monitor_offset) == app.selected_item;
+            let res_selected = content_active && (i * 3 + 1 + monitor_offset) == app.selected_item;
             let scale_selected =
-                content_active && (i * 2 + 1 + monitor_offset) == app.selected_item;
+                content_active && (i * 3 + 2 + monitor_offset) == app.selected_item;
 
             let mut title = m.name.clone();
             if m.primary {
@@ -88,6 +89,20 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             }
 
             let current_res = format!("{}x{}@{:.2}Hz", m.width, m.height, m.refresh_rate);
+            let mut mode_str = if !m.active {
+                "Off".to_string()
+            } else if let Some(target) = &m.mirror_of {
+                format!("Mirror {}", target)
+            } else {
+                "Extend".to_string()
+            };
+            if app.monitors.len() > 1 {
+                mode_str = format!("< {} >", mode_str);
+            }
+            let mode_control = widgets::value_selector(&mode_str, mode_selected);
+            let mode_lines = widgets::setting_row(&title, "Display Mode", mode_control, mode_selected, 60);
+            text.extend(mode_lines);
+
             let modes_str = if m.supported_modes.len() > 1 {
                 format!("< {} >", current_res)
             } else {
@@ -95,7 +110,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             };
 
             let control = widgets::value_selector(&modes_str, res_selected);
-            let row_lines = widgets::setting_row(&title, &m.description, control, res_selected, 60);
+            let row_lines = widgets::setting_row("Resolution", &m.description, control, res_selected, 60);
 
             text.extend(row_lines);
 
