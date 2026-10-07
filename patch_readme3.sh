@@ -1,0 +1,1 @@
+sed -i 's/description = "A production-grade universal Linux Settings Center for the terminal."/description = "A hyper-lightweight (near 0% CPU, <9MB) universal Linux Settings Center for the terminal."/' Cargo.toml

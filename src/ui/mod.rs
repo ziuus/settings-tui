@@ -41,12 +41,12 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Constraint::Length(1), // Spacer
         Constraint::Min(0),    // Main content
     ];
-    
+
     if app.sponsor_msg.is_some() {
         constraints.push(Constraint::Length(1)); // Sponsor spacer
         constraints.push(Constraint::Length(1)); // Sponsor ad
     }
-    
+
     constraints.push(Constraint::Length(1)); // Footer spacer
     constraints.push(Constraint::Length(1)); // Footer keybindings
 
@@ -370,8 +370,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         let sponsor_p = Paragraph::new(Line::from(vec![
             Span::styled(msg, Style::default().fg(Color::DarkGray)),
             Span::styled("  [Ad] ", Style::default().fg(Color::DarkGray)),
-        ])).alignment(ratatui::layout::Alignment::Right);
-        
+        ]))
+        .alignment(ratatui::layout::Alignment::Right);
+
         f.render_widget(sponsor_p, main_layout[main_layout.len() - 3]);
     }
 

@@ -1,0 +1,38 @@
+--- src/app/mod.rs
++++ src/app/mod.rs
+@@ -1753,6 +1753,24 @@
+         }
+     }
+ 
++    let sponsor_message = std::sync::Arc::new(tokio::sync::Mutex::new(None::<String>));
++    let sponsor_clone = sponsor_message.clone();
++    tokio::spawn(async move {
++        let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(3)).build().unwrap_or_default();
++        if let Ok(resp) = client.get("https://settings-tui.vercel.app/api/sponsor").send().await {
++            if let Ok(json) = resp.json::<serde_json::Value>().await {
++                if let Some(enabled) = json.get("enabled").and_then(|v| v.as_bool()) {
++                    if enabled {
++                        if let Some(msg) = json.get("message").and_then(|v| v.as_str()) {
++                            *sponsor_clone.lock().await = Some(msg.to_string());
++                        }
++                    }
++                }
++            }
++        }
++    });
++
++
+     // Apply CLI search argument
+     if let Some(q) = &args.search {
+@@ -3284,6 +3302,11 @@
+     )?;
+     terminal.show_cursor()?;
+ 
++    if let Ok(mut lock) = sponsor_message.try_lock() {
++        if let Some(msg) = lock.take() {
++            println!("\n{}\n", msg);
++        }
++    }
++
+     Ok(())
+ }

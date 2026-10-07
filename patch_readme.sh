@@ -1,0 +1,1 @@
+sed -i 's/\*\*Pure Rust binary\*\* (<9 MB stripped), sub-15ms startup, zero desktop environment lock-in/\*\*Pure Rust binary\*\* (<9 MB stripped), sub-15ms startup, **near 0% idle CPU & RAM usage**, zero desktop environment lock-in/' README.md

@@ -1192,9 +1192,9 @@ impl App {
                         let max_items = match cat.as_str() {
                             "Network" => {
                                 if self.wifi_enabled {
-                                    self.networks.len() + 1 + self.vpns.len()
+                                    self.networks.len() + 3 + self.vpns.len()
                                 } else {
-                                    1 + self.vpns.len()
+                                    3 + self.vpns.len()
                                 }
                             }
                             "Bluetooth" => {
@@ -1208,6 +1208,7 @@ impl App {
                                 self.audio_sinks.len()
                                     + self.audio_sources.len()
                                     + self.audio_streams.len()
+                                    + 1
                             }
                             "Services" => self.services.len(),
                             "Display" => {
@@ -1215,8 +1216,12 @@ impl App {
                                     1
                                 } else {
                                     0
+                                } + if self.night_light_enabled.is_some() {
+                                    1
+                                } else {
+                                    0
                                 };
-                                base + self.monitors.len()
+                                base + self.monitors.len() * 2
                             }
                             "Applications" => self.applications.len(),
                             "Appearance" => 3,
@@ -1780,11 +1785,16 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     let app = Arc::new(Mutex::new(initial_app));
     let app_clone_sponsor = app.clone();
-    let api_url = cfg.sponsor_api_url.clone().unwrap_or_else(|| "https://settings-tui.vercel.app/api/sponsor".to_string());
+    let api_url = cfg
+        .sponsor_api_url
+        .clone()
+        .unwrap_or_else(|| "https://settings-tui.vercel.app/api/sponsor".to_string());
 
-    
     tokio::spawn(async move {
-        let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(3)).build().unwrap_or_default();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(3))
+            .build()
+            .unwrap_or_default();
         if let Ok(resp) = client.get(&api_url).send().await {
             if let Ok(json) = resp.json::<serde_json::Value>().await {
                 if let Some(enabled) = json.get("enabled").and_then(|v| v.as_bool()) {
@@ -1792,16 +1802,16 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         let text = json.get("message").and_then(|v| v.as_str()).unwrap_or("");
                         let link = json.get("link").and_then(|v| v.as_str()).unwrap_or("");
                         let view_url = json.get("view_url").and_then(|v| v.as_str());
-                        
+
                         if !text.is_empty() {
                             let display_msg = if !link.is_empty() {
                                 format!("{} - {}", text, link)
                             } else {
                                 text.to_string()
                             };
-                            
+
                             app_clone_sponsor.lock().await.sponsor_msg = Some(display_msg);
-                            
+
                             // Fire the tracking pixel asynchronously so the ad network registers the impression
                             if let Some(url) = view_url {
                                 let _ = client.get(url).send().await;
@@ -1812,7 +1822,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
             }
         }
     });
-
 
     let (tx, mut rx) = mpsc::channel(100);
 
