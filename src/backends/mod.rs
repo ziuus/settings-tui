@@ -269,7 +269,12 @@ pub struct Monitor {
 pub trait DisplayBackend: Send + Sync {
     async fn get_monitors(&self) -> Result<Vec<Monitor>>;
     async fn set_scale(&self, name: &str, scale: f64) -> Result<()>;
-    async fn set_monitor_mode(&self, name: &str, mode: &str, mirror_target: Option<&str>) -> Result<()>;
+    async fn set_monitor_mode(
+        &self,
+        name: &str,
+        mode: &str,
+        mirror_target: Option<&str>,
+    ) -> Result<()>;
 
     async fn set_resolution(&self, name: &str, width: i32, height: i32, refresh: f64)
         -> Result<()>;
