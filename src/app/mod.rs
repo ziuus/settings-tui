@@ -72,6 +72,7 @@ pub enum AppEvent {
     UpdateVpns(Vec<VpnConnection>),
     UpdateAutostartApps(Vec<crate::backends::AutostartEntry>),
     Notification(String),
+    RequestSudo(String, bool), // name, start
 }
 
 #[derive(Clone)]
@@ -1747,13 +1748,13 @@ impl App {
                             }
                         } else if cat == "System" {
                             if self.selected_item == 0 {
-                                // System Updates (Not fully implemented in backend yet)
+                                // System Updates
                                 if is_enter {
                                     self.notifications.push(
-                                        "System updates check is not yet implemented.".to_string(),
+                                        "Updates are checked automatically in the background.".to_string(),
                                     );
                                 }
-                            } else if self.selected_item == 1 {
+                            } else if self.selected_item == 2 {
                                 if let Some(sys_info) = &self.system_info {
                                     let new_state = !sys_info.ntp_active;
                                     if let Some(tx) = &self.cmd_tx {
@@ -1762,13 +1763,13 @@ impl App {
                                 }
                             } else if is_enter {
                                 let (action, prompt) = match self.selected_item {
-                                    2 => ("suspend", "Suspend the system to RAM now?"),
-                                    3 => ("hibernate", "Hibernate session to swap and power off?"),
-                                    4 => (
+                                    3 => ("suspend", "Suspend the system to RAM now?"),
+                                    4 => ("hibernate", "Hibernate session to swap and power off?"),
+                                    5 => (
                                         "reboot",
                                         "Restart the computer now? (Unsaved work will be lost)",
                                     ),
-                                    5 => (
+                                    6 => (
                                         "poweroff",
                                         "Shut down and power off the computer? (Unsaved work will be lost)",
                                     ),
@@ -2334,7 +2335,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                     }
                                 } else {
                                     let err_msg = mutation_error.unwrap_or_else(|| format!("Failed to {} service {}.", if start { "start" } else { "stop" }, name));
-                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                    if err_msg.to_lowercase().contains("access denied") || err_msg.to_lowercase().contains("interactive authentication required") || err_msg.to_lowercase().contains("policykit") || err_msg.to_lowercase().contains("not authorized") {
+                                        let _ = tx_cmd_resp.send(AppEvent::RequestSudo(name.clone(), start)).await;
+                                    } else {
+                                        let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                    }
                                 }
 
                                 if let Ok(svcs) = final_state {
@@ -3848,6 +3853,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                     app_lock.notifications.push(msg);
                     app_lock.notification_timer = 12; // 3 seconds (250ms per tick)
                 }
+                AppEvent::RequestSudo(name, start) => {
+                    app_lock.sudo_password_modal = Some((name, start, String::new()));
+                }
             }
             app_lock.clamp_selection();
         }
@@ -4076,7 +4084,7 @@ mod tests {
         let sys_idx = app.categories.iter().position(|c| c == "System").unwrap();
         app.selected_category = sys_idx;
         app.focus = Focus::Content;
-        app.selected_item = 5; // "Power Off" (index 5)
+        app.selected_item = 6; // "Power Off" (index 6)
 
         // Space key must NOT trigger power action confirmation or execution
         app.handle_key(press(KeyCode::Char(' ')));
@@ -4101,7 +4109,7 @@ mod tests {
 
         // Cancel and test Reboot distinct prompt
         app.confirm_action = None;
-        app.selected_item = 4; // Reboot (index 4)
+        app.selected_item = 5; // Reboot (index 5)
         app.handle_key(press(KeyCode::Enter));
         let reboot_prompt = app.confirm_action.as_ref().unwrap().0.clone();
         assert!(
@@ -4290,7 +4298,7 @@ mod tests {
         let sys_idx = app.categories.iter().position(|c| c == "System").unwrap();
         app.selected_category = sys_idx;
         app.focus = Focus::Content;
-        app.selected_item = 1; // NTP item
+        app.selected_item = 2; // NTP item
 
         app.system_info = Some(SystemInfo {
             hostname: "test-host".to_string(),
