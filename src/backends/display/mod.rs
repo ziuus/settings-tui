@@ -47,7 +47,11 @@ impl DisplayBackend for HyprlandBackend {
                     active: m["disabled"].as_bool().map(|d| !d).unwrap_or(true),
                     primary: false,
                     supported_modes,
-                    mirror_of: m.get("mirrorOf").and_then(|v| v.as_str()).filter(|v| *v != "none").map(|v| v.to_string()),
+                    mirror_of: m
+                        .get("mirrorOf")
+                        .and_then(|v| v.as_str())
+                        .filter(|v| *v != "none")
+                        .map(|v| v.to_string()),
                 });
             }
         }
@@ -89,10 +93,18 @@ impl DisplayBackend for HyprlandBackend {
         }
     }
 
-    async fn set_monitor_mode(&self, name: &str, mode: &str, mirror_target: Option<&str>) -> Result<()> {
+    async fn set_monitor_mode(
+        &self,
+        name: &str,
+        mode: &str,
+        mirror_target: Option<&str>,
+    ) -> Result<()> {
         let (mon_res, mon_scale) = if let Ok(monitors) = self.get_monitors().await {
             if let Some(m) = monitors.into_iter().find(|m| m.name == name) {
-                (format!("{}x{}@{}", m.width, m.height, m.refresh_rate), m.scale)
+                (
+                    format!("{}x{}@{}", m.width, m.height, m.refresh_rate),
+                    m.scale,
+                )
             } else {
                 return Err(anyhow::anyhow!("Monitor not found"));
             }
@@ -117,7 +129,7 @@ impl DisplayBackend for HyprlandBackend {
             .arg("monitor")
             .arg(arg)
             .status()?;
-        
+
         if status.success() {
             Ok(())
         } else {
@@ -196,7 +208,12 @@ impl DisplayBackend for GenericDisplayBackend {
             "Display scaling is not supported on this generic backend."
         ))
     }
-    async fn set_monitor_mode(&self, _name: &str, _mode: &str, _mirror_target: Option<&str>) -> Result<()> {
+    async fn set_monitor_mode(
+        &self,
+        _name: &str,
+        _mode: &str,
+        _mirror_target: Option<&str>,
+    ) -> Result<()> {
         Err(anyhow::anyhow!("Not supported on generic backend"))
     }
 

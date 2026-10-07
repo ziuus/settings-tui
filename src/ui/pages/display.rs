@@ -100,7 +100,8 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
                 mode_str = format!("< {} >", mode_str);
             }
             let mode_control = widgets::value_selector(&mode_str, mode_selected);
-            let mode_lines = widgets::setting_row(&title, "Display Mode", mode_control, mode_selected, 60);
+            let mode_lines =
+                widgets::setting_row(&title, "Display Mode", mode_control, mode_selected, 60);
             text.extend(mode_lines);
 
             let modes_str = if m.supported_modes.len() > 1 {
@@ -110,7 +111,8 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             };
 
             let control = widgets::value_selector(&modes_str, res_selected);
-            let row_lines = widgets::setting_row("Resolution", &m.description, control, res_selected, 60);
+            let row_lines =
+                widgets::setting_row("Resolution", &m.description, control, res_selected, 60);
 
             text.extend(row_lines);
 

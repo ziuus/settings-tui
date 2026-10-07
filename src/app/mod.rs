@@ -608,13 +608,23 @@ impl App {
         }
 
         // Detailed Power Search
-        let has_limit = self.power_info.as_ref().and_then(|info| info.charge_limit).is_some();
+        let has_limit = self
+            .power_info
+            .as_ref()
+            .and_then(|info| info.charge_limit)
+            .is_some();
         let mut pwr_idx = 1;
-        if has_limit { pwr_idx += 1; }
-        let btn_idx = pwr_idx; pwr_idx += 1;
-        let lid_idx = pwr_idx; pwr_idx += 1;
-        let idle_idx = pwr_idx; pwr_idx += 1;
-        let lock_idx = pwr_idx; pwr_idx += 1;
+        if has_limit {
+            pwr_idx += 1;
+        }
+        let btn_idx = pwr_idx;
+        pwr_idx += 1;
+        let lid_idx = pwr_idx;
+        pwr_idx += 1;
+        let idle_idx = pwr_idx;
+        pwr_idx += 1;
+        let lock_idx = pwr_idx;
+        pwr_idx += 1;
         let suspend_idx = pwr_idx;
 
         let mut add_pwr_search = |title: &str, desc: &str, extra: &str, idx: usize| {
@@ -629,15 +639,45 @@ impl App {
                 });
             }
         };
-        
+
         if has_limit {
-            add_pwr_search("Battery Charge Limit", "Conservation mode active (limits charge)", "charge threshold", 1);
+            add_pwr_search(
+                "Battery Charge Limit",
+                "Conservation mode active (limits charge)",
+                "charge threshold",
+                1,
+            );
         }
-        add_pwr_search("Power Button Action", "Action when hardware power button is pressed", "power key hardware", btn_idx);
-        add_pwr_search("Lid Switch Action", "Action when laptop lid is closed", "lid close laptop flap", lid_idx);
-        add_pwr_search("Display Sleep Timeout", "Time before screen blanks and turns off", "idle delay blank monitor off", idle_idx);
-        add_pwr_search("Screen Lock Timeout", "Time after screen blanks before lock activates", "lock delay screen password auth", lock_idx);
-        add_pwr_search("Automatic Suspend Timeout", "Idle time before system enters sleep state", "suspend delay sleep ram standby", suspend_idx);
+        add_pwr_search(
+            "Power Button Action",
+            "Action when hardware power button is pressed",
+            "power key hardware",
+            btn_idx,
+        );
+        add_pwr_search(
+            "Lid Switch Action",
+            "Action when laptop lid is closed",
+            "lid close laptop flap",
+            lid_idx,
+        );
+        add_pwr_search(
+            "Display Sleep Timeout",
+            "Time before screen blanks and turns off",
+            "idle delay blank monitor off",
+            idle_idx,
+        );
+        add_pwr_search(
+            "Screen Lock Timeout",
+            "Time after screen blanks before lock activates",
+            "lock delay screen password auth",
+            lock_idx,
+        );
+        add_pwr_search(
+            "Automatic Suspend Timeout",
+            "Idle time before system enters sleep state",
+            "suspend delay sleep ram standby",
+            suspend_idx,
+        );
 
         // Search System Settings & Actions
         let sys_actions = [
@@ -1014,7 +1054,7 @@ impl App {
             }
             return;
         }
-        
+
         if self.is_searching {
             match key.code {
                 KeyCode::Esc => {
@@ -1835,7 +1875,10 @@ impl App {
                                     let m = &self.monitors[mon_idx];
                                     if is_mode {
                                         if let Some(tx) = &self.cmd_tx {
-                                            let _ = tx.try_send(BackendCommand::CycleMonitorMode(m.name.clone(), increase));
+                                            let _ = tx.try_send(BackendCommand::CycleMonitorMode(
+                                                m.name.clone(),
+                                                increase,
+                                            ));
                                         }
                                     } else if is_scale {
                                         let new_scale = if increase {
@@ -2345,7 +2388,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                                 modes.push(format!("mirror {}", other.name));
                                             }
                                         }
-                                        
+
                                         let current = if !m.active {
                                             "disable".to_string()
                                         } else if let Some(t) = &m.mirror_of {
@@ -2353,7 +2396,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                         } else {
                                             "extend".to_string()
                                         };
-                                        
+
                                         let current_idx = modes.iter().position(|x| x == &current).unwrap_or(0);
                                         let next_idx = if forward {
                                             (current_idx + 1) % modes.len()
@@ -2361,13 +2404,13 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                             if current_idx == 0 { modes.len() - 1 } else { current_idx - 1 }
                                         };
                                         let next_mode_str = &modes[next_idx];
-                                        
+
                                         let (mode, mirror_target) = if next_mode_str.starts_with("mirror ") {
                                             ("mirror", Some(next_mode_str.trim_start_matches("mirror ")))
                                         } else {
                                             (next_mode_str.as_str(), None)
                                         };
-                                        
+
                                         let _ = disp.set_monitor_mode(&name, mode, mirror_target).await;
                                         if let Ok(new_monitors) = disp.get_monitors().await {
                                             let _ = tx_cmd_resp.send(AppEvent::UpdateMonitors(new_monitors)).await;
