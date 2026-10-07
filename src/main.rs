@@ -72,10 +72,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if let Some(Commands::Update) = args.command {
-        println!("Updating settings-tui to the latest version from git...");
+        println!("Updating settings-tui to the latest version via NPM...");
         let status = std::process::Command::new("sh")
             .arg("-c")
-            .arg("cd ~/Projects/settings-tui && git pull && cargo build --release && cp target/release/settings-tui ~/.cargo/bin/ || echo 'You may need to manually copy the binary to your PATH'")
+            .arg("npm install -g settings-tui@latest")
             .status();
         match status {
             Ok(s) if s.success() => {
