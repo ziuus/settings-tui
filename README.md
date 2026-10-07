@@ -10,7 +10,7 @@
 [![npm version](https://img.shields.io/npm/v/settings-tui.svg?style=flat&color=CB3837)](https://www.npmjs.com/package/settings-tui)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE-MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.75+-dea584.svg)](https://www.rust-lang.org)
-[![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)]() [![Sponsor](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86)](https://github.com/sponsors/ziuus)
+[![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)]()
 
 <br/>
 
@@ -203,9 +203,12 @@ For autonomous AI coding assistants, see [AGENTS.md](AGENTS.md) for architectura
 
 ## 💖 Support the Project
 
-If you find `settings-tui` useful and want to support its ongoing development, consider sponsoring the project via GitHub Sponsors. Your support helps keep this tool well-maintained and natively integrated with the ever-changing Linux ecosystem.
+If you find `settings-tui` useful and want to support its ongoing development, consider donating! Your support helps keep this tool well-maintained and natively integrated with the ever-changing Linux ecosystem.
 
-[Support on GitHub Sponsors](https://github.com/sponsors/ziuus)
+- [☕ Buy Me a Coffee](https://buymeacoffee.com/YOUR_USERNAME)
+- [🍩 Ko-fi](https://ko-fi.com/YOUR_USERNAME)
+- [🤝 Patreon](https://patreon.com/YOUR_USERNAME)
+- [💳 PayPal](https://paypal.me/YOUR_USERNAME)
 
 ---
 

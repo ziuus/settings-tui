@@ -49,7 +49,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         ),
         (
             "Sponsor / Donate 💖",
-            "Support ongoing development via GitHub Sponsors (github.com/sponsors/ziuus)",
+            "Support ongoing development (opens donation links in browser)",
         ),
     ];
 

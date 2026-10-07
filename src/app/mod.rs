@@ -1753,7 +1753,7 @@ impl App {
                                 let url = if self.selected_item == 0 {
                                     "https://github.com/ziuus/settings-tui"
                                 } else {
-                                    "https://github.com/sponsors/ziuus"
+                                    "https://github.com/ziuus/settings-tui#%F0%9F%92%96-support-the-project"
                                 };
                                 let _ = std::process::Command::new("xdg-open").arg(url).spawn();
                             }
