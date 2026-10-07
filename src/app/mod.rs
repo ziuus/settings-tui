@@ -1755,16 +1755,15 @@ impl App {
                                 } else {
                                     "https://github.com/sponsors/ziuus"
                                 };
-                                let _ = std::process::Command::new("xdg-open")
-                                    .arg(url)
-                                    .spawn();
+                                let _ = std::process::Command::new("xdg-open").arg(url).spawn();
                             }
                         } else if cat == "System" {
                             if self.selected_item == 0 {
                                 // System Updates
                                 if is_enter {
                                     self.notifications.push(
-                                        "Updates are checked automatically in the background.".to_string(),
+                                        "Updates are checked automatically in the background."
+                                            .to_string(),
                                     );
                                 }
                             } else if self.selected_item == 2 {
@@ -3876,11 +3875,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     // Restore terminal
     disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen
-        
-    )?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
     if let Ok(mut lock) = app.try_lock() {
         if let Some(msg) = lock.sponsor_msg.take() {

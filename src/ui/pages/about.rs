@@ -15,7 +15,12 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  settings-tui ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "  settings-tui ",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(env!("CARGO_PKG_VERSION"), Style::default().fg(Color::Cyan)),
         ]),
         Line::from(Span::styled(
