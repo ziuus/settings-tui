@@ -1,3 +1,4 @@
+use ratatui::layout::Alignment;
 use crate::app::App;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Margin, Rect},
@@ -178,7 +179,30 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     };
     let content_active = app.focus == crate::app::Focus::Content;
 
-    let content_text = if app.is_searching {
+    let content_text = if app.input_test_modal {
+        let mut lines = vec![
+            Line::from(Span::styled(
+                "Input Test Mode",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Press [Esc] to exit",
+                Style::default().fg(Color::Gray),
+            )),
+            Line::from(""),
+        ];
+
+        for ev in &app.input_test_events {
+            lines.push(Line::from(Span::styled(
+                ev,
+                Style::default().fg(Color::White),
+            )));
+        }
+        lines
+    } else if app.is_searching {
         let mut lines = vec![
             Line::from(Span::styled(
                 "Global Search",
@@ -479,6 +503,93 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     }
 
     // Render Hostname modal
+    if let Some((name, start, pwd)) = &app.sudo_password_modal {
+        let modal_width = 50;
+        let modal_height = 8;
+        let modal_area = Rect {
+            x: (area.width.saturating_sub(modal_width)) / 2,
+            y: (area.height.saturating_sub(modal_height)) / 2,
+            width: modal_width,
+            height: modal_height,
+        };
+        let block = Block::default()
+            .title("Permission Required (Sudo)")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Red));
+
+        let action = if *start { "Start" } else { "Stop" };
+        let text = vec![
+            Line::from(Span::styled(
+                format!("{} service: {}", action, name),
+                Style::default().fg(Color::White),
+            )),
+            Line::from(Span::styled(
+                "Enter password to elevate:",
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("{}█", "*".repeat(pwd.len())),
+                Style::default().fg(Color::White),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "[Enter] Confirm   [Esc] Cancel",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        f.render_widget(Clear, modal_area);
+        f.render_widget(
+            Paragraph::new(text)
+                .block(block)
+                .alignment(Alignment::Center),
+            modal_area,
+        );
+        return;
+    }
+
+    if let Some(cmd) = &app.custom_startup_modal {
+        let modal_width = 54;
+        let modal_height = 7;
+        let modal_area = Rect {
+            x: (area.width.saturating_sub(modal_width)) / 2,
+            y: (area.height.saturating_sub(modal_height)) / 2,
+            width: modal_width,
+            height: modal_height,
+        };
+        let block = Block::default()
+            .title("Add Custom Startup Command")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan));
+
+        let text = vec![
+            Line::from(Span::styled(
+                "Enter bash command or script path:",
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("{}█", cmd),
+                Style::default().fg(Color::White),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "[Enter] Save   [Esc] Cancel",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        f.render_widget(Clear, modal_area);
+        f.render_widget(
+            Paragraph::new(text)
+                .block(block)
+                .alignment(ratatui::layout::Alignment::Center),
+            modal_area,
+        );
+        return;
+    }
+
     if let Some(buf) = &app.font_modal {
         let modal_width = 54;
         let modal_height = 7;

@@ -104,7 +104,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             .add_modifier(Modifier::BOLD),
     )));
     text.push(Line::from(Span::styled(
-        "  [Enter] Launch   [s] Add to Startup   [ / ] Search",
+        "  [Enter] Launch   [s] Add to Startup   [n] New Custom Startup   [ / ] Search",
         Style::default().fg(Color::DarkGray),
     )));
     text.push(Line::from(""));

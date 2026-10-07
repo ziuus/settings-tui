@@ -1,6 +1,6 @@
 [package]
 name = "settings-tui"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2021"
 description = "A hyper-lightweight (near 0% CPU, <9MB) universal Linux Settings Center for the terminal."
 

@@ -1,0 +1,10 @@
+--- src/backends/mod.rs
++++ src/backends/mod.rs
+@@ -276,6 +277,7 @@
+         height: i32,
+         refresh: f64,
+     ) -> Result<()>;
+     async fn set_scale(&self, name: &str, scale: f64) -> Result<()>;
++    async fn set_monitor_mode(&self, name: &str, mode: &str, mirror_target: Option<&str>) -> Result<()>;
+ }
+ 

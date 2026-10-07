@@ -75,7 +75,9 @@ pub enum AppEvent {
 
 #[derive(Clone)]
 pub enum BackendCommand {
-    ToggleService(String, bool), // name, start
+    AddCustomStartupApp(String),
+    ToggleService(String, bool),
+    SudoToggleService(String, bool, String), // name, start
     ToggleBluetoothPower(bool),
     ConnectBluetooth(crate::backends::BluetoothDeviceId, bool), // id, connect?
     ToggleAudioMute(u32, bool),                                 // id, is_sink
@@ -183,6 +185,8 @@ pub struct App {
     pub search_selected_idx: usize,
     pub confirm_action: Option<(String, BackendCommand)>,
     pub password_modal: Option<PasswordModal>,
+    pub sudo_password_modal: Option<(String, bool, String)>,
+    pub custom_startup_modal: Option<String>,
     pub hostname_modal: Option<String>,
     pub input_test_modal: bool,
     pub input_test_events: Vec<String>,
@@ -218,6 +222,8 @@ impl App {
             networks: vec![],
             confirm_action: None,
             password_modal: None,
+            sudo_password_modal: None,
+            custom_startup_modal: None,
             hostname_modal: None,
             input_test_modal: false,
             input_test_events: Vec::new(),
@@ -933,6 +939,55 @@ impl App {
                 }
                 KeyCode::Char(c) => {
                     modal.password.push(c);
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        
+        if let Some(modal) = &mut self.sudo_password_modal {
+            match key.code {
+                KeyCode::Esc => {
+                    self.sudo_password_modal = None;
+                }
+                KeyCode::Enter => {
+                    if let Some((name, start, pwd)) = self.sudo_password_modal.take() {
+                        if let Some(tx) = &self.cmd_tx {
+                            let _ = tx.try_send(BackendCommand::SudoToggleService(name, start, pwd));
+                        }
+                    }
+                }
+                KeyCode::Backspace => {
+                    modal.2.pop();
+                }
+                KeyCode::Char(c) => {
+                    modal.2.push(c);
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        if let Some(modal) = &mut self.custom_startup_modal {
+            match key.code {
+                KeyCode::Esc => {
+                    self.custom_startup_modal = None;
+                }
+                KeyCode::Enter => {
+                    if let Some(cmd) = self.custom_startup_modal.take() {
+                        if !cmd.is_empty() {
+                            if let Some(tx) = &self.cmd_tx {
+                                let _ = tx.try_send(BackendCommand::AddCustomStartupApp(cmd));
+                            }
+                        }
+                    }
+                }
+                KeyCode::Backspace => {
+                    modal.pop();
+                }
+                KeyCode::Char(c) => {
+                    modal.push(c);
                 }
                 _ => {}
             }
@@ -2172,6 +2227,45 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
             tokio::select! {
                 Some(cmd) = cmd_rx.recv() => {
                     match cmd {
+                        BackendCommand::SudoToggleService(name, start, pwd) => {
+                            use std::io::Write;
+                            let child = std::process::Command::new("sudo")
+                                .arg("-S")
+                                .arg("systemctl")
+                                .arg(if start { "start" } else { "stop" })
+                                .arg(&name)
+                                .stdin(std::process::Stdio::piped())
+                                .stdout(std::process::Stdio::null())
+                                .stderr(std::process::Stdio::null())
+                                .spawn();
+
+                            if let Ok(mut c) = child {
+                                if let Some(mut stdin) = c.stdin.take() {
+                                    let _ = stdin.write_all(format!("{}\n", pwd).as_bytes());
+                                }
+                                let _ = c.wait();
+                            }
+
+                            // Immediately refresh services
+                            if let Some(svc) = &svc_backend_for_cmd {
+                                if let Ok(s) = svc.get_services().await {
+                                    let _ = tx_cmd_resp.send(AppEvent::UpdateServices(s)).await;
+                                }
+                            }
+                        }
+                        BackendCommand::AddCustomStartupApp(cmd) => {
+                            let app_entry = crate::backends::AppEntry {
+                                id: format!("{}.desktop", cmd.replace(" ", "_").replace("/", "_")),
+                                name: cmd.clone(),
+                                description: "Custom Startup Script".to_string(),
+                                exec: cmd.clone(),
+                                is_flatpak: false,
+                            };
+                            let _ = apps_backend.add_autostart_app(&app_entry).await;
+                            if let Ok(list) = apps_backend.get_autostart_entries().await {
+                                let _ = tx_cmd_resp.send(AppEvent::UpdateAutostartApps(list)).await;
+                            }
+                        }
                         BackendCommand::ToggleService(name, start) => {
                             if !crate::security::validate_service_name(&name) {
                                 let _ = tx_cmd_resp

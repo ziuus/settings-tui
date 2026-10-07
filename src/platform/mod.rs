@@ -191,9 +191,7 @@ impl PlatformCapabilities {
         };
 
         let services = if has_services_backend {
-            CapabilityStatus::RequiresPermission(
-                "Service state mutations require Polkit elevation".into(),
-            )
+            CapabilityStatus::Mutable
         } else if env.is_systemd {
             CapabilityStatus::Partial(
                 "systemd active but Systemd1 D-Bus Manager interface unreachable".into(),
@@ -310,7 +308,7 @@ mod tests {
         let caps = PlatformCapabilities::detect(true, true, true, true, true, true, true, true);
         assert!(matches!(
             caps.services,
-            CapabilityStatus::RequiresPermission(_)
+            CapabilityStatus::Mutable
         ));
         assert!(caps.services.is_mutable());
     }

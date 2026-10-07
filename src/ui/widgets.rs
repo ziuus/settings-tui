@@ -12,15 +12,43 @@ pub fn toggle<'a>(enabled: bool, is_selected: bool) -> Vec<Span<'a>> {
 
     if enabled {
         vec![
-            Span::styled("[ ", bg_style.fg(Color::DarkGray)),
+            Span::styled(
+                "[ ",
+                if is_selected {
+                    bg_style.fg(Color::Gray)
+                } else {
+                    bg_style.fg(Color::DarkGray)
+                },
+            ),
             Span::styled("ON", bg_style.fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::styled(" ]", bg_style.fg(Color::DarkGray)),
+            Span::styled(
+                " ]",
+                if is_selected {
+                    bg_style.fg(Color::Gray)
+                } else {
+                    bg_style.fg(Color::DarkGray)
+                },
+            ),
         ]
     } else {
         vec![
-            Span::styled("[ ", bg_style.fg(Color::DarkGray)),
+            Span::styled(
+                "[ ",
+                if is_selected {
+                    bg_style.fg(Color::Gray)
+                } else {
+                    bg_style.fg(Color::DarkGray)
+                },
+            ),
             Span::styled("OFF", bg_style.fg(Color::Red).add_modifier(Modifier::BOLD)),
-            Span::styled(" ]", bg_style.fg(Color::DarkGray)),
+            Span::styled(
+                " ]",
+                if is_selected {
+                    bg_style.fg(Color::Gray)
+                } else {
+                    bg_style.fg(Color::DarkGray)
+                },
+            ),
         ]
     }
 }
@@ -37,10 +65,31 @@ pub fn slider<'a>(value: f64, width: usize, is_selected: bool) -> Vec<Span<'a>> 
     let empty = width - filled;
 
     vec![
-        Span::styled("[", bg_style.fg(Color::DarkGray)),
+        Span::styled(
+            "[",
+            if is_selected {
+                bg_style.fg(Color::Gray)
+            } else {
+                bg_style.fg(Color::DarkGray)
+            },
+        ),
         Span::styled("■".repeat(filled), bg_style.fg(Color::LightCyan)),
-        Span::styled("-".repeat(empty), bg_style.fg(Color::DarkGray)),
-        Span::styled("]", bg_style.fg(Color::DarkGray)),
+        Span::styled(
+            "-".repeat(empty),
+            if is_selected {
+                bg_style.fg(Color::Gray)
+            } else {
+                bg_style.fg(Color::DarkGray)
+            },
+        ),
+        Span::styled(
+            "]",
+            if is_selected {
+                bg_style.fg(Color::Gray)
+            } else {
+                bg_style.fg(Color::DarkGray)
+            },
+        ),
         Span::styled(
             format!(" {:>3.0}%", value * 100.0),
             bg_style.fg(Color::Gray),
@@ -66,12 +115,26 @@ pub fn value_selector<'a>(value: &str, is_selected: bool) -> Vec<Span<'a>> {
     };
 
     vec![
-        Span::styled("< ", bg_style.fg(Color::DarkGray)),
+        Span::styled(
+            "< ",
+            if is_selected {
+                bg_style.fg(Color::Gray)
+            } else {
+                bg_style.fg(Color::DarkGray)
+            },
+        ),
         Span::styled(
             value.to_string(),
             bg_style.fg(Color::White).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" >", bg_style.fg(Color::DarkGray)),
+        Span::styled(
+            " >",
+            if is_selected {
+                bg_style.fg(Color::Gray)
+            } else {
+                bg_style.fg(Color::DarkGray)
+            },
+        ),
     ]
 }
 
@@ -114,7 +177,14 @@ pub fn setting_row<'a>(
     if !description.is_empty() {
         lines.push(ratatui::text::Line::from(vec![
             Span::styled("     ", bg_style),
-            Span::styled(description.to_string(), bg_style.fg(Color::DarkGray)),
+            Span::styled(
+                description.to_string(),
+                if is_selected {
+                    bg_style.fg(Color::Gray)
+                } else {
+                    bg_style.fg(Color::DarkGray)
+                },
+            ),
         ]));
     }
 
