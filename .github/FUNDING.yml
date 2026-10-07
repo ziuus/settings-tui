@@ -1,9 +1,17 @@
-# These are supported funding model platforms
+# GitHub Sponsors
+github: [ziuus]
 
-# patreon: your-patreon-username
-# open_collective: your-collective-name
-# ko_fi: your-ko-fi-username
-# buy_me_a_coffee: your-buy-me-a-coffee-username
+# Ko-fi
+ko_fi: noelyt101
 
-# Custom links (PayPal, Crypto, etc)
-custom: ['https://paypal.me/your-paypal-username', 'https://your-crypto-wallet-link.com']
+# Buy Me a Coffee
+buy_me_a_coffee: ziuus
+
+# Patreon
+patreon: noelpaul
+
+# Open Collective
+open_collective: noelpaul
+
+# Custom donation links
+custom: ['https://github.com/sponsors/ziuus']
