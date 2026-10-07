@@ -114,7 +114,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
 
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "  [Enter/Space: Toggle | Left/Right: Adjust Speed]",
+            "  [Enter/Space: Toggle | Left/Right: Adjust Speed | t: Input Test]",
             Style::default().fg(Color::DarkGray),
         )));
 

@@ -13,6 +13,10 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         )),
+        Line::from(Span::styled(
+            "  [Enter/Space] Toggle   [ / ] Search",
+            Style::default().fg(Color::DarkGray),
+        )),
         Line::from(""),
     ];
 
