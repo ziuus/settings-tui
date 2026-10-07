@@ -20,7 +20,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         // 0: Natural Scrolling
         let is_sel_0 = content_active && app.selected_item == 0;
         let bg_0 = if is_sel_0 {
-            Style::default().bg(Color::DarkGray)
+            Style::default()
         } else {
             Style::default()
         };
@@ -45,7 +45,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         // 1: Tap to Click
         let is_sel_1 = content_active && app.selected_item == 1;
         let bg_1 = if is_sel_1 {
-            Style::default().bg(Color::DarkGray)
+            Style::default()
         } else {
             Style::default()
         };
@@ -67,7 +67,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         // 2: Left Handed
         let is_sel_2 = content_active && app.selected_item == 2;
         let bg_2 = if is_sel_2 {
-            Style::default().bg(Color::DarkGray)
+            Style::default()
         } else {
             Style::default()
         };
@@ -89,7 +89,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         // 3: Pointer Speed / Sensitivity (-1.0 to 1.0)
         let is_sel_3 = content_active && app.selected_item == 3;
         let bg_3 = if is_sel_3 {
-            Style::default().bg(Color::DarkGray)
+            Style::default()
         } else {
             Style::default()
         };
@@ -113,20 +113,6 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         lines.push(Line::from(speed_line));
 
         lines.push(Line::from(""));
-
-        // 4: Input Test Mode
-        let is_sel_4 = content_active && app.selected_item == 4;
-        let control = widgets::value_selector("Start Test [Enter]", is_sel_4);
-        let test_lines = widgets::setting_row(
-            "Device Input Test",
-            "Test mouse, touchpad, and keyboard events interactively",
-            control,
-            is_sel_4,
-            60,
-        );
-        lines.extend(test_lines);
-        lines.push(Line::from(""));
-
         lines.push(Line::from(Span::styled(
             "  [Enter/Space: Toggle | Left/Right: Adjust Speed | t: Input Test]",
             Style::default().fg(Color::DarkGray),

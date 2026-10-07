@@ -1,0 +1,92 @@
+--- src/app/mod.rs
++++ src/app/mod.rs
+@@ -955,7 +955,7 @@
+                 1 + (if has_limit { 1 } else { 0 }) + 5
+             }
+-            "Mouse & Touchpad" => 4,
++            "Mouse & Touchpad" => 5,
+             "Applications" => self.autostart_apps.len() + self.applications.len(),
+@@ -1078,6 +1078,7 @@
+         if self.input_test_modal {
+             if key.code == KeyCode::Esc {
+                 self.input_test_modal = false;
++                let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture);
+             } else {
+                 self.input_test_events.push(format!("Key: {:?}", key));
+@@ -1780,6 +1781,11 @@
+                                                 !input.left_handed,
+                                             ));
+                                         }
++                                        4 if is_enter => {
++                                            self.input_test_modal = true;
++                                            self.input_test_events.clear();
++                                            let _ = crossterm::execute!(std::io::stdout(), crossterm::event::EnableMouseCapture);
++                                        }
+                                         _ => {}
+                                     }
+@@ -1876,6 +1882,7 @@
+                         if cat == "Mouse & Touchpad" {
+                             self.input_test_modal = true;
+                             self.input_test_events.clear();
++                            let _ = crossterm::execute!(std::io::stdout(), crossterm::event::EnableMouseCapture);
+                         }
+                     }
+@@ -1949,6 +1956,7 @@
+                 AppEvent::UpdateNetworks(enabled, nets) => {
+                     app_lock.wifi_enabled = enabled;
+                     app_lock.networks = nets;
++                    app_lock.clamp_selection();
+                 }
+                 AppEvent::UpdateBluetooth(devices) => {
+                     app_lock.bluetooth_devices = devices;
++                    app_lock.clamp_selection();
+                 }
+                 AppEvent::UpdateBluetoothAdapter(adapter) => {
+                     if let Some(a) = adapter {
+@@ -1965,6 +1974,7 @@
+                     app_lock.audio_sinks = sinks;
+                     app_lock.audio_sources = sources;
+                     app_lock.audio_streams = streams;
++                    app_lock.clamp_selection();
+                 }
+                 AppEvent::UpdateServices(services) => {
+                     app_lock.services = services;
++                    app_lock.clamp_selection();
+                 }
+                 AppEvent::RequestSudoPassword(action) => {
+                     app_lock.sudo_password_modal = Some((action, String::new()));
+@@ -1981,11 +1991,13 @@
+                     if defs.is_some() {
+                         app_lock.default_apps = defs;
+                     }
++                    app_lock.clamp_selection();
+                 }
+                 AppEvent::UpdateAutostartApps(autostart) => {
+                     app_lock.autostart_apps = autostart;
++                    app_lock.clamp_selection();
+                 }
+                 AppEvent::UpdateInputSettings(settings) => {
+                     app_lock.input_settings = Some(settings);
+                 }
+                 AppEvent::UpdateVpns(vpns) => {
+                     app_lock.vpns = vpns;
++                    app_lock.clamp_selection();
+                 }
+                 AppEvent::UpdateCapabilities(caps) => app_lock.capabilities = *caps,
+@@ -2087,7 +2099,7 @@
+     // Setup terminal
+     enable_raw_mode()?;
+     let mut stdout = io::stdout();
+-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
++    execute!(stdout, EnterAlternateScreen)?;
+     let backend = CrosstermBackend::new(stdout);
+     let mut terminal = Terminal::new(backend)?;
+@@ -3653,7 +3665,7 @@
+                         BackendCommand::TestAudio => {
+                             std::thread::spawn(|| {
+                                 let _ = std::process::Command::new("speaker-test")
+-                                    .args(["-t", "sine", "-f", "440", "-l", "1"])
++                                    .args(["-c", "2", "-t", "wav", "-l", "1"])
+                                     .output();
+                             });
+                         }

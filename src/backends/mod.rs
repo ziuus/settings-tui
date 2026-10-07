@@ -130,6 +130,7 @@ pub struct SystemInfo {
     pub disks: Vec<SystemDiskInfo>,
     pub cpu_model: String,
     pub cpu_cores: usize,
+    pub pending_updates: Option<usize>,
 }
 
 #[async_trait]

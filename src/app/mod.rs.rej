@@ -1,0 +1,11 @@
+--- mod.rs
++++ mod.rs
+@@ -955,7 +955,7 @@
+                 1 + (if has_limit { 1 } else { 0 }) + 5
+             }
+-            "Mouse & Touchpad" => 4,
++            "Mouse & Touchpad" => 5,
+             "Applications" => self.autostart_apps.len() + self.applications.len(),
+ 
+ 
+ 

@@ -75,10 +75,15 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         )));
         text.push(Line::from(""));
         let is_updates = content_active && app.selected_item == 0;
-        let up_control = widgets::value_selector("Check", is_updates);
+        let up_control = widgets::value_selector("Terminal", is_updates);
+        let updates_desc = match info.pending_updates {
+            Some(0) => "System is up to date".to_string(),
+            Some(n) => format!("{} updates available", n),
+            None => "Checking for updates...".to_string(),
+        };
         text.extend(widgets::setting_row(
             "System Updates",
-            "Use native package manager in terminal.",
+            &updates_desc,
             up_control,
             is_updates,
             60,
@@ -91,13 +96,19 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         )));
-        text.push(Line::from(vec![
-            Span::styled("  Timezone: ", Style::default().fg(Color::Gray)),
-            Span::raw(info.timezone.clone()),
-        ]));
+        // Timezone row (index 1)
+        let is_tz_selected = content_active && app.selected_item == 1;
+        let tz_control = widgets::value_selector("Read-only", is_tz_selected);
+        text.extend(widgets::setting_row(
+            "System Timezone",
+            &info.timezone,
+            tz_control,
+            is_tz_selected,
+            60,
+        ));
 
-        // NTP Sync row
-        let is_ntp_selected = content_active && app.selected_item == 1;
+        // NTP Sync row (index 2)
+        let is_ntp_selected = content_active && app.selected_item == 2;
         let ntp_desc = "Synchronize system clock with network time servers via systemd-timesyncd";
         let ntp_control = widgets::toggle(info.ntp_active, is_ntp_selected);
         let ntp_lines = widgets::setting_row(
@@ -198,7 +209,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
     ];
 
     for (i, (action, desc)) in actions.iter().enumerate() {
-        let is_selected = content_active && app.selected_item == i + 2;
+        let is_selected = content_active && app.selected_item == i + 3;
         let control = widgets::value_selector("Execute [Enter]", is_selected);
         let action_lines = widgets::setting_row(action, desc, control, is_selected, 60);
         text.extend(action_lines);

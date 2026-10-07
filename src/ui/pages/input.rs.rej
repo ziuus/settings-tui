@@ -1,0 +1,27 @@
+--- input.rs
++++ input.rs
+@@ -107,10 +107,24 @@
+         speed_line.push(Span::styled(
+             format!("  {:.2} [-1.0 .. 1.0]", info.sensitivity),
+             bg_3.fg(Color::DarkGray),
+         ));
+         lines.push(Line::from(speed_line));
+ 
+         lines.push(Line::from(""));
++        
++        // 4: Input Test Mode
++        let is_sel_4 = content_active && app.selected_item == 4;
++        let control = widgets::value_selector("Start Test [Enter]", is_sel_4);
++        let test_lines = widgets::setting_row(
++            "Device Input Test",
++            "Test mouse, touchpad, and keyboard events interactively",
++            control,
++            is_sel_4,
++            60,
++        );
++        lines.extend(test_lines);
++        lines.push(Line::from(""));
++        
+         lines.push(Line::from(Span::styled(
+             "  [Enter/Space: Toggle | Left/Right: Adjust Speed | t: Input Test]",
+             Style::default().fg(Color::DarkGray),

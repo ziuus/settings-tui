@@ -8,6 +8,32 @@ use zbus::Connection;
 pub struct RealSystemBackend {
     sys: std::sync::Mutex<System>,
     connection: Option<Connection>,
+    updates_cache: std::sync::Arc<std::sync::Mutex<Option<usize>>>,
+}
+
+async fn check_updates() -> Option<usize> {
+    if std::path::Path::new("/usr/bin/checkupdates").exists() {
+        if let Ok(output) = tokio::process::Command::new("checkupdates").output().await {
+            let out = String::from_utf8_lossy(&output.stdout);
+            let count = out.lines().filter(|l| !l.trim().is_empty()).count();
+            return Some(count);
+        }
+    }
+    if std::path::Path::new("/usr/bin/apt-get").exists() {
+        if let Ok(output) = tokio::process::Command::new("apt-get").args(["-s", "upgrade"]).output().await {
+            let out = String::from_utf8_lossy(&output.stdout);
+            let count = out.lines().filter(|l| l.starts_with("Inst ")).count();
+            return Some(count);
+        }
+    }
+    if std::path::Path::new("/usr/bin/dnf").exists() {
+        if let Ok(output) = tokio::process::Command::new("dnf").args(["check-update", "-q"]).output().await {
+            let out = String::from_utf8_lossy(&output.stdout);
+            let count = out.lines().filter(|l| !l.trim().is_empty()).count();
+            return Some(count);
+        }
+    }
+    None
 }
 
 impl RealSystemBackend {
@@ -15,9 +41,18 @@ impl RealSystemBackend {
         let mut sys = System::new_all();
         sys.refresh_all();
         let connection = Connection::system().await.ok();
+        let updates_cache = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let cache_clone = updates_cache.clone();
+        tokio::spawn(async move {
+            let updates = check_updates().await;
+            if let Ok(mut lock) = cache_clone.lock() {
+                *lock = updates;
+            }
+        });
         Self {
             sys: std::sync::Mutex::new(sys),
             connection,
+            updates_cache,
         }
     }
 
@@ -28,6 +63,7 @@ impl RealSystemBackend {
         Self {
             sys: std::sync::Mutex::new(sys),
             connection,
+            updates_cache: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }
     }
 }
@@ -123,6 +159,7 @@ impl SystemBackend for RealSystemBackend {
             disks,
             cpu_model,
             cpu_cores,
+            pending_updates: *self.updates_cache.lock().unwrap(),
         })
     }
 
