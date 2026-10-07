@@ -306,10 +306,7 @@ mod tests {
     #[test]
     fn test_services_and_system_require_permission() {
         let caps = PlatformCapabilities::detect(true, true, true, true, true, true, true, true);
-        assert!(matches!(
-            caps.services,
-            CapabilityStatus::Mutable
-        ));
+        assert!(matches!(caps.services, CapabilityStatus::Mutable));
         assert!(caps.services.is_mutable());
     }
 }

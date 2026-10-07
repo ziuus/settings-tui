@@ -1,5 +1,5 @@
-use ratatui::layout::Alignment;
 use crate::app::App;
+use ratatui::layout::Alignment;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Modifier, Style},

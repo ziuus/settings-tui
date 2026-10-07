@@ -945,7 +945,6 @@ impl App {
             return;
         }
 
-        
         if let Some(modal) = &mut self.sudo_password_modal {
             match key.code {
                 KeyCode::Esc => {
@@ -954,7 +953,8 @@ impl App {
                 KeyCode::Enter => {
                     if let Some((name, start, pwd)) = self.sudo_password_modal.take() {
                         if let Some(tx) = &self.cmd_tx {
-                            let _ = tx.try_send(BackendCommand::SudoToggleService(name, start, pwd));
+                            let _ =
+                                tx.try_send(BackendCommand::SudoToggleService(name, start, pwd));
                         }
                     }
                 }
