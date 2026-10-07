@@ -1,79 +1,59 @@
-#![allow(clippy::vec_init_then_push)]
 use crate::app::App;
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
+use crate::ui::widgets;
+use ratatui::{
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+};
 
-pub fn render(_app: &App, _content_active: bool) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
+pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
+    let mut text = vec![
+        Line::from(Span::styled(
+            "About & Support",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  settings-tui ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(env!("CARGO_PKG_VERSION"), Style::default().fg(Color::Cyan)),
+        ]),
+        Line::from(Span::styled(
+            "  The Missing Native Control Center for Linux Power Users",
+            Style::default().fg(Color::Gray),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  Built with 🦀 Rust, ratatui, and native Linux APIs.",
+            Style::default().fg(Color::DarkGray),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Links & Support",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+    ];
 
-    lines.push(Line::from(Span::styled(
-        "Settings TUI",
-        Style::default()
-            .fg(Color::LightCyan)
-            .add_modifier(Modifier::BOLD),
-    )));
-    lines.push(Line::from(Span::styled(
-        "Universal Linux Settings Center",
-        Style::default().fg(Color::DarkGray),
-    )));
-    lines.push(Line::from(""));
+    let actions = [
+        (
+            "GitHub Repository",
+            "Report issues, contribute code, and view documentation (github.com/ziuus/settings-tui)",
+        ),
+        (
+            "Sponsor / Donate 💖",
+            "Support ongoing development via GitHub Sponsors (github.com/sponsors/ziuus)",
+        ),
+    ];
 
-    lines.push(Line::from(Span::styled(
-        "Author & Sponsorship",
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD),
-    )));
-    lines.push(Line::from(
-        "Created with ❤️ for the open-source Linux community.",
-    ));
-    lines.push(Line::from(
-        "If you find this useful, please consider supporting the development!",
-    ));
-    lines.push(Line::from(Span::styled(
-        "  👉 Sponsor on GitHub: https://github.com/sponsors/ziuus",
-        Style::default().fg(Color::LightMagenta),
-    )));
-    lines.push(Line::from(Span::styled(
-        "  ☕ Buy me a Coffee: https://ko-fi.com/ziuus",
-        Style::default().fg(Color::LightYellow),
-    )));
-    lines.push(Line::from(""));
+    for (i, (action, desc)) in actions.iter().enumerate() {
+        let is_selected = content_active && app.selected_item == i;
+        let control = widgets::value_selector("Open [Enter]", is_selected);
+        let action_lines = widgets::setting_row(action, desc, control, is_selected, 60);
+        text.extend(action_lines);
+    }
 
-    lines.push(Line::from(Span::styled(
-        "Keybindings & Shortcuts",
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD),
-    )));
-    lines.push(Line::from("  [↑] / [k]       : Move up"));
-    lines.push(Line::from("  [↓] / [j]       : Move down"));
-    lines.push(Line::from(
-        "  [←] / [h]       : Switch focus to Sidebar / Decrease value",
-    ));
-    lines.push(Line::from(
-        "  [→] / [l]       : Switch focus to Content / Increase value",
-    ));
-    lines.push(Line::from("  [Enter]         : Toggle option / Edit value"));
-    lines.push(Line::from(
-        "  [Esc] / [q]     : Go back / Cancel modal / Quit",
-    ));
-    lines.push(Line::from("  [/]             : Open global search"));
-    lines.push(Line::from(""));
-
-    lines.push(Line::from(Span::styled(
-        "System Capabilities",
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD),
-    )));
-    lines.push(Line::from(
-        "  [~] : Partial support (some features unmanaged)",
-    ));
-    lines.push(Line::from("  [*] : Requires Elevation (Polkit / root)"));
-    lines.push(Line::from("  [R] : Read-only mode"));
-    lines.push(Line::from("  [x] : Unsupported environment"));
-    lines.push(Line::from("  [!] : Daemon/Service unavailable"));
-
-    lines
+    text
 }

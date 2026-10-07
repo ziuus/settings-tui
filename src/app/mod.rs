@@ -216,6 +216,7 @@ impl App {
                 "Mouse & Touchpad".to_string(),
                 "Services".to_string(),
                 "System".to_string(),
+                "About & Support".to_string(),
             ],
             system_info: None,
             wifi_enabled: true,
@@ -930,6 +931,7 @@ impl App {
             "Applications" => self.autostart_apps.len() + self.applications.len(),
             "Appearance" => 6,
             "System" => 6,
+            "About & Support" => 2,
             _ => 0,
         }
     }
@@ -1745,6 +1747,17 @@ impl App {
                                         _ => {}
                                     }
                                 }
+                            }
+                        } else if cat == "About & Support" {
+                            if is_enter {
+                                let url = if self.selected_item == 0 {
+                                    "https://github.com/ziuus/settings-tui"
+                                } else {
+                                    "https://github.com/sponsors/ziuus"
+                                };
+                                let _ = std::process::Command::new("xdg-open")
+                                    .arg(url)
+                                    .spawn();
                             }
                         } else if cat == "System" {
                             if self.selected_item == 0 {
@@ -4126,7 +4139,7 @@ mod tests {
         assert!(vis.contains(&"Network".to_string()));
         assert!(vis.contains(&"System".to_string()));
         assert!(vis.contains(&"Mouse & Touchpad".to_string()));
-        assert_eq!(vis.len(), 10, "Should have 10 categories");
+        assert_eq!(vis.len(), 11, "Should have 11 categories");
     }
 
     #[test]
