@@ -15,7 +15,7 @@ pub fn toggle<'a>(enabled: bool, is_selected: bool) -> Vec<Span<'a>> {
             Span::styled(
                 "[ ",
                 if is_selected {
-                    bg_style.fg(Color::Gray)
+                    bg_style.fg(Color::White)
                 } else {
                     bg_style.fg(Color::DarkGray)
                 },
@@ -24,7 +24,7 @@ pub fn toggle<'a>(enabled: bool, is_selected: bool) -> Vec<Span<'a>> {
             Span::styled(
                 " ]",
                 if is_selected {
-                    bg_style.fg(Color::Gray)
+                    bg_style.fg(Color::White)
                 } else {
                     bg_style.fg(Color::DarkGray)
                 },
@@ -35,7 +35,7 @@ pub fn toggle<'a>(enabled: bool, is_selected: bool) -> Vec<Span<'a>> {
             Span::styled(
                 "[ ",
                 if is_selected {
-                    bg_style.fg(Color::Gray)
+                    bg_style.fg(Color::White)
                 } else {
                     bg_style.fg(Color::DarkGray)
                 },
@@ -44,7 +44,7 @@ pub fn toggle<'a>(enabled: bool, is_selected: bool) -> Vec<Span<'a>> {
             Span::styled(
                 " ]",
                 if is_selected {
-                    bg_style.fg(Color::Gray)
+                    bg_style.fg(Color::White)
                 } else {
                     bg_style.fg(Color::DarkGray)
                 },
@@ -68,7 +68,7 @@ pub fn slider<'a>(value: f64, width: usize, is_selected: bool) -> Vec<Span<'a>> 
         Span::styled(
             "[",
             if is_selected {
-                bg_style.fg(Color::Gray)
+                bg_style.fg(Color::White)
             } else {
                 bg_style.fg(Color::DarkGray)
             },
@@ -77,7 +77,7 @@ pub fn slider<'a>(value: f64, width: usize, is_selected: bool) -> Vec<Span<'a>> 
         Span::styled(
             "-".repeat(empty),
             if is_selected {
-                bg_style.fg(Color::Gray)
+                bg_style.fg(Color::White)
             } else {
                 bg_style.fg(Color::DarkGray)
             },
@@ -85,14 +85,18 @@ pub fn slider<'a>(value: f64, width: usize, is_selected: bool) -> Vec<Span<'a>> 
         Span::styled(
             "]",
             if is_selected {
-                bg_style.fg(Color::Gray)
+                bg_style.fg(Color::White)
             } else {
                 bg_style.fg(Color::DarkGray)
             },
         ),
         Span::styled(
             format!(" {:>3.0}%", value * 100.0),
-            bg_style.fg(Color::Gray),
+            if is_selected {
+                bg_style.fg(Color::White)
+            } else {
+                bg_style.fg(Color::Gray)
+            },
         ),
     ]
 }
@@ -104,7 +108,14 @@ pub fn value_read_only<'a>(value: &str, is_selected: bool) -> Vec<Span<'a>> {
         Style::default()
     };
 
-    vec![Span::styled(value.to_string(), bg_style.fg(Color::Gray))]
+    vec![Span::styled(
+        value.to_string(),
+        if is_selected {
+            bg_style.fg(Color::White)
+        } else {
+            bg_style.fg(Color::Gray)
+        },
+    )]
 }
 
 pub fn value_selector<'a>(value: &str, is_selected: bool) -> Vec<Span<'a>> {
@@ -118,7 +129,7 @@ pub fn value_selector<'a>(value: &str, is_selected: bool) -> Vec<Span<'a>> {
         Span::styled(
             "< ",
             if is_selected {
-                bg_style.fg(Color::Gray)
+                bg_style.fg(Color::White)
             } else {
                 bg_style.fg(Color::DarkGray)
             },
@@ -130,7 +141,7 @@ pub fn value_selector<'a>(value: &str, is_selected: bool) -> Vec<Span<'a>> {
         Span::styled(
             " >",
             if is_selected {
-                bg_style.fg(Color::Gray)
+                bg_style.fg(Color::White)
             } else {
                 bg_style.fg(Color::DarkGray)
             },
@@ -180,7 +191,7 @@ pub fn setting_row<'a>(
             Span::styled(
                 description.to_string(),
                 if is_selected {
-                    bg_style.fg(Color::Gray)
+                    bg_style.fg(Color::White)
                 } else {
                     bg_style.fg(Color::DarkGray)
                 },

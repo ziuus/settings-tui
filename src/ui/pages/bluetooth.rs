@@ -37,7 +37,10 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         text.push(Line::from(""));
         let page_size = 10;
         let selected_dev_idx = app.selected_item.saturating_sub(1);
-        let start_idx = selected_dev_idx.saturating_sub(page_size / 2);
+        let max_start = app.bluetooth_devices.len().saturating_sub(page_size);
+        let start_idx = selected_dev_idx
+            .saturating_sub(page_size / 2)
+            .min(max_start);
         let end_idx = (start_idx + page_size).min(app.bluetooth_devices.len());
 
         for i in start_idx..end_idx {

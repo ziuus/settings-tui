@@ -141,7 +141,10 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
 
         let page_size = 15;
         let selected_net_idx = app.selected_item.saturating_sub(3);
-        let start_idx = selected_net_idx.saturating_sub(page_size / 2);
+        let max_start = app.networks.len().saturating_sub(page_size);
+        let start_idx = selected_net_idx
+            .saturating_sub(page_size / 2)
+            .min(max_start);
         let end_idx = (start_idx + page_size).min(app.networks.len());
 
         for i in start_idx..end_idx {

@@ -118,7 +118,10 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
     } else {
         let page_size = 20;
         let selected_app_idx = app.selected_item.saturating_sub(autostart_offset);
-        let start_idx = selected_app_idx.saturating_sub(page_size / 2);
+        let max_start = app.applications.len().saturating_sub(page_size);
+        let start_idx = selected_app_idx
+            .saturating_sub(page_size / 2)
+            .min(max_start);
         let end_idx = (start_idx + page_size).min(app.applications.len());
 
         for i in start_idx..end_idx {

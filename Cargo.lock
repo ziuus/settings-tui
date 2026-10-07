@@ -1963,7 +1963,7 @@ dependencies = [
 
 [[package]]
 name = "settings-tui"
-version = "0.1.9"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "async-trait",

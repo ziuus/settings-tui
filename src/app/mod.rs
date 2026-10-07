@@ -878,35 +878,58 @@ impl App {
         }
     }
 
+    pub fn category_max_items(&self, cat: &str) -> usize {
+        match cat {
+            "Network" => {
+                if self.wifi_enabled {
+                    self.networks.len() + 3 + self.vpns.len()
+                } else {
+                    3 + self.vpns.len()
+                }
+            }
+            "Bluetooth" => {
+                if self.bluetooth_powered {
+                    self.bluetooth_devices.len() + 1
+                } else {
+                    1
+                }
+            }
+            "Sound" => {
+                self.audio_sinks.len() + self.audio_sources.len() + self.audio_streams.len() + 1
+            }
+            "Services" => self.services.len(),
+            "Display" => {
+                let base = if self.display_brightness.is_some() {
+                    1
+                } else {
+                    0
+                } + if self.night_light_enabled.is_some() {
+                    1
+                } else {
+                    0
+                };
+                base + self.monitors.len() * 3
+            }
+            "Power" => {
+                let has_limit = self
+                    .power_info
+                    .as_ref()
+                    .and_then(|info| info.charge_limit)
+                    .is_some();
+                1 + (if has_limit { 1 } else { 0 }) + 5
+            }
+            "Mouse & Touchpad" => 4,
+            "Applications" => self.autostart_apps.len() + self.applications.len(),
+            "Appearance" => 6,
+            "System" => 6,
+            _ => 0,
+        }
+    }
+
     pub fn clamp_selection(&mut self) {
         let vis = self.visible_categories();
         if let Some(cat) = vis.get(self.selected_category) {
-            let max_items = match cat.as_str() {
-                "Network" => {
-                    if self.wifi_enabled {
-                        self.networks.len() + 1 + self.vpns.len()
-                    } else {
-                        1 + self.vpns.len()
-                    }
-                }
-                "Bluetooth" => {
-                    if self.bluetooth_powered {
-                        self.bluetooth_devices.len() + 1
-                    } else {
-                        1
-                    }
-                }
-                "Sound" => {
-                    self.audio_sinks.len() + self.audio_sources.len() + self.audio_streams.len()
-                }
-                "Services" => self.services.len(),
-                "Display" => self.monitors.len(),
-                "Applications" => self.autostart_apps.len() + self.applications.len(),
-                "Mouse & Touchpad" => 4,
-                "Appearance" => 3,
-                "System" => 4,
-                _ => 0,
-            };
+            let max_items = self.category_max_items(cat);
             if max_items == 0 {
                 self.selected_item = 0;
             } else if self.selected_item >= max_items {
@@ -1400,54 +1423,7 @@ impl App {
                 } else if self.focus == Focus::Content {
                     // Very naive max items depending on category
                     if let Some(cat) = vis.get(self.selected_category) {
-                        let max_items = match cat.as_str() {
-                            "Network" => {
-                                if self.wifi_enabled {
-                                    self.networks.len() + 3 + self.vpns.len()
-                                } else {
-                                    3 + self.vpns.len()
-                                }
-                            }
-                            "Bluetooth" => {
-                                if self.bluetooth_powered {
-                                    self.bluetooth_devices.len() + 1
-                                } else {
-                                    1
-                                }
-                            }
-                            "Sound" => {
-                                self.audio_sinks.len()
-                                    + self.audio_sources.len()
-                                    + self.audio_streams.len()
-                                    + 1
-                            }
-                            "Services" => self.services.len(),
-                            "Display" => {
-                                let base = if self.display_brightness.is_some() {
-                                    1
-                                } else {
-                                    0
-                                } + if self.night_light_enabled.is_some() {
-                                    1
-                                } else {
-                                    0
-                                };
-                                base + self.monitors.len() * 3
-                            }
-                            "Power" => {
-                                let has_limit = self
-                                    .power_info
-                                    .as_ref()
-                                    .and_then(|info| info.charge_limit)
-                                    .is_some();
-                                1 + (if has_limit { 1 } else { 0 }) + 5
-                            }
-                            "Mouse & Touchpad" => 4,
-                            "Applications" => self.autostart_apps.len() + self.applications.len(),
-                            "Appearance" => 6,
-                            "System" => 5,
-                            _ => 0,
-                        };
+                        let max_items = self.category_max_items(cat);
                         if max_items > 0 && self.selected_item < max_items - 1 {
                             self.selected_item += 1;
                         }
@@ -1598,7 +1574,9 @@ impl App {
                                             .try_send(BackendCommand::ToggleAudioMute(id, is_sink));
                                     }
                                 }
-                            } else if is_enter && self.selected_item == sinks_len + sources_len {
+                            } else if is_enter
+                                && self.selected_item == sinks_len + sources_len + streams_len
+                            {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::TestAudio);
                                 }
@@ -1841,6 +1819,16 @@ impl App {
                                     let _ = tx.try_send(BackendCommand::AddAutostart(app.clone()));
                                 }
                             }
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') => {
+                let vis = self.visible_categories();
+                if self.focus == Focus::Content {
+                    if let Some(cat) = vis.get(self.selected_category) {
+                        if cat == "Applications" {
+                            self.custom_startup_modal = Some(String::new());
                         }
                     }
                 }
@@ -4009,14 +3997,14 @@ mod tests {
         app.focus = Focus::Content;
         app.selected_item = 0;
 
-        // Navigate through all items (NTP + 4 power actions = 5 items)
+        // Navigate through all items (Updates + NTP + 4 power actions = 6 items)
         for _ in 0..10 {
             app.handle_key(press(KeyCode::Down));
         }
-        // Must stay at 4 (max index for 5 items)
+        // Must stay at 5 (max index for 6 items)
         assert_eq!(
-            app.selected_item, 4,
-            "System category should have max 5 items (0-4)"
+            app.selected_item, 5,
+            "System category should have max 6 items (0-5)"
         );
     }
 

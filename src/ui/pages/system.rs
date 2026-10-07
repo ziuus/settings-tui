@@ -74,7 +74,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
                 .add_modifier(Modifier::BOLD),
         )));
         text.push(Line::from(""));
-        let is_updates = content_active && app.selected_item == 3;
+        let is_updates = content_active && app.selected_item == 0;
         let up_control = widgets::value_selector("Check", is_updates);
         text.extend(widgets::setting_row(
             "System Updates",
@@ -96,8 +96,8 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             Span::raw(info.timezone.clone()),
         ]));
 
-        // NTP Sync row (Interactive - Item 0)
-        let is_ntp_selected = content_active && app.selected_item == 0;
+        // NTP Sync row
+        let is_ntp_selected = content_active && app.selected_item == 1;
         let ntp_desc = "Synchronize system clock with network time servers via systemd-timesyncd";
         let ntp_control = widgets::toggle(info.ntp_active, is_ntp_selected);
         let ntp_lines = widgets::setting_row(
@@ -198,7 +198,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
     ];
 
     for (i, (action, desc)) in actions.iter().enumerate() {
-        let is_selected = content_active && app.selected_item == i + 1;
+        let is_selected = content_active && app.selected_item == i + 2;
         let control = widgets::value_selector("Execute [Enter]", is_selected);
         let action_lines = widgets::setting_row(action, desc, control, is_selected, 60);
         text.extend(action_lines);
