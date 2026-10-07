@@ -312,11 +312,25 @@ pub struct AppEntry {
     pub is_flatpak: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AutostartEntry {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub exec: String,
+    pub enabled: bool,
+    pub user_owned: bool,
+}
+
 #[async_trait]
 pub trait ApplicationsBackend: Send + Sync {
     async fn get_applications(&self) -> Result<Vec<AppEntry>>;
     async fn launch_application(&self, exec: &str) -> Result<()>;
     async fn get_default_apps(&self) -> Result<DefaultAppsInfo>;
+    async fn get_autostart_entries(&self) -> Result<Vec<AutostartEntry>>;
+    async fn toggle_autostart_entry(&self, id: &str, enable: bool) -> Result<()>;
+    async fn remove_autostart_entry(&self, id: &str) -> Result<()>;
+    async fn add_autostart_app(&self, app: &AppEntry) -> Result<()>;
 }
 
 // Core definitions for Input (Mouse & Touchpad)

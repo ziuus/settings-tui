@@ -69,6 +69,7 @@ pub enum AppEvent {
     UpdateHotspot(Option<bool>),
     UpdateActiveConnection(Option<crate::backends::ActiveConnectionInfo>),
     UpdateVpns(Vec<VpnConnection>),
+    UpdateAutostartApps(Vec<crate::backends::AutostartEntry>),
     Notification(String),
 }
 
@@ -100,6 +101,9 @@ pub enum BackendCommand {
     SetAudioDefault(u32, bool),
     RemoveBluetoothDevice(crate::backends::BluetoothDeviceId),
     LaunchApplication(String),
+    ToggleAutostart(String, bool),
+    AddAutostart(crate::backends::AppEntry),
+    RemoveAutostart(String),
     SystemPowerAction(String),
     ToggleNTP(bool),
     ToggleNaturalScroll(bool),
@@ -164,6 +168,7 @@ pub struct App {
     pub active_connection: Option<crate::backends::ActiveConnectionInfo>,
     pub appearance_info: Option<crate::backends::AppearanceInfo>,
     pub applications: Vec<crate::backends::AppEntry>,
+    pub autostart_apps: Vec<crate::backends::AutostartEntry>,
     pub default_apps: Option<DefaultAppsInfo>,
     pub input_settings: Option<InputSettings>,
     pub vpns: Vec<VpnConnection>,
@@ -229,6 +234,7 @@ impl App {
             active_connection: None,
             appearance_info: None,
             applications: vec![],
+            autostart_apps: vec![],
             default_apps: None,
             input_settings: None,
             vpns: vec![],
@@ -638,7 +644,31 @@ impl App {
             }
         }
 
+        // Search Startup Applications
+        for (i, app) in self.autostart_apps.iter().enumerate() {
+            let extra = format!("startup autostart boot {}", app.exec);
+            let score = calc_score(&app.name, "Applications", &app.description, &extra, &q);
+            if score > 0 {
+                self.search_results.push(SearchResult {
+                    title: format!("Startup: {}", app.name),
+                    category: "Applications".to_string(),
+                    description: format!(
+                        "Startup application ({}) - {}",
+                        if app.enabled { "Enabled" } else { "Disabled" },
+                        if app.description.is_empty() {
+                            &app.exec
+                        } else {
+                            &app.description
+                        }
+                    ),
+                    target_item_idx: i,
+                    score,
+                });
+            }
+        }
+
         // Search Applications
+        let autostart_offset = self.autostart_apps.len();
         for (i, app) in self.applications.iter().enumerate() {
             let score = calc_score(&app.name, "Applications", &app.description, &app.exec, &q);
             if score > 0 {
@@ -650,7 +680,7 @@ impl App {
                     } else {
                         app.description.clone()
                     },
-                    target_item_idx: i,
+                    target_item_idx: autostart_offset + i,
                     score,
                 });
             }
@@ -788,7 +818,7 @@ impl App {
                 }
                 "Services" => self.services.len(),
                 "Display" => self.monitors.len(),
-                "Applications" => self.applications.len(),
+                "Applications" => self.autostart_apps.len() + self.applications.len(),
                 "Mouse & Touchpad" => 4,
                 "Appearance" => 3,
                 "System" => 4,
@@ -1269,7 +1299,7 @@ impl App {
                                 1 + (if has_limit { 1 } else { 0 }) + 5
                             }
                             "Mouse & Touchpad" => 4,
-                            "Applications" => self.applications.len(),
+                            "Applications" => self.autostart_apps.len() + self.applications.len(),
                             "Appearance" => 6,
                             "System" => 5,
                             _ => 0,
@@ -1532,13 +1562,25 @@ impl App {
                                     let _ = tx.try_send(BackendCommand::CycleSuspendDelay(true));
                                 }
                             }
-                        } else if cat == "Applications"
-                            && self.selected_item < self.applications.len()
-                        {
-                            let app = &self.applications[self.selected_item];
-                            if let Some(tx) = &self.cmd_tx {
-                                let _ = tx
-                                    .try_send(BackendCommand::LaunchApplication(app.exec.clone()));
+                        } else if cat == "Applications" {
+                            if self.selected_item < self.autostart_apps.len() {
+                                let entry = &self.autostart_apps[self.selected_item];
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::ToggleAutostart(
+                                        entry.id.clone(),
+                                        !entry.enabled,
+                                    ));
+                                }
+                            } else {
+                                let app_idx = self.selected_item - self.autostart_apps.len();
+                                if app_idx < self.applications.len() {
+                                    let app = &self.applications[app_idx];
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ = tx.try_send(BackendCommand::LaunchApplication(
+                                            app.exec.clone(),
+                                        ));
+                                    }
+                                }
                             }
                         } else if cat == "Mouse & Touchpad" {
                             if let Some(input) = &self.input_settings {
@@ -1619,6 +1661,31 @@ impl App {
                                 format!("Forget Wi-Fi network profile '{}'?", net.name),
                                 BackendCommand::ForgetNetwork(net.id.clone()),
                             ));
+                        } else if cat == "Applications"
+                            && self.selected_item < self.autostart_apps.len()
+                        {
+                            let entry = &self.autostart_apps[self.selected_item];
+                            self.confirm_action = Some((
+                                format!("Remove '{}' from startup applications?", entry.name),
+                                BackendCommand::RemoveAutostart(entry.id.clone()),
+                            ));
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('s') | KeyCode::Char('S') => {
+                let vis = self.visible_categories();
+                if self.focus == Focus::Content {
+                    if let Some(cat) = vis.get(self.selected_category) {
+                        if cat == "Applications" && self.selected_item >= self.autostart_apps.len()
+                        {
+                            let app_idx = self.selected_item - self.autostart_apps.len();
+                            if app_idx < self.applications.len() {
+                                let app = &self.applications[app_idx];
+                                if let Some(tx) = &self.cmd_tx {
+                                    let _ = tx.try_send(BackendCommand::AddAutostart(app.clone()));
+                                }
+                            }
                         }
                     }
                 }
@@ -2744,6 +2811,61 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 let _ = tx_cmd_resp.send(AppEvent::Notification("Launched application.".to_string())).await;
                             }
                         }
+                        BackendCommand::ToggleAutostart(id, enable) => {
+                            let mutate = apps_backend.toggle_autostart_entry(&id, enable);
+                            let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                mutate,
+                                apps_backend.get_autostart_entries(),
+                                |entries: &Vec<crate::backends::AutostartEntry>| {
+                                    if let Some(entry) = entries.iter().find(|e| e.id == id) {
+                                        entry.enabled == enable
+                                    } else {
+                                        false
+                                    }
+                                },
+                                10, 50
+                            );
+                            if mutation_ok {
+                                if verified {
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(format!(
+                                        "Startup app '{}' {}",
+                                        id,
+                                        if enable { "enabled" } else { "disabled" }
+                                    ))).await;
+                                } else {
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification("Autostart change could not be verified.".to_string())).await;
+                                }
+                            } else {
+                                let err_msg = mutation_error.unwrap_or_else(|| "Failed to update autostart entry.".to_string());
+                                let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                            }
+                            if let Ok(entries) = final_state {
+                                let _ = tx_cmd_resp.send(AppEvent::UpdateAutostartApps(entries)).await;
+                            }
+                        }
+                        BackendCommand::AddAutostart(app) => {
+                            let name = app.name.clone();
+                            let res = apps_backend.add_autostart_app(&app).await;
+                            if res.is_ok() {
+                                let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Added '{}' to startup apps.", name))).await;
+                                if let Ok(entries) = apps_backend.get_autostart_entries().await {
+                                    let _ = tx_cmd_resp.send(AppEvent::UpdateAutostartApps(entries)).await;
+                                }
+                            } else {
+                                let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Failed to add '{}' to startup apps.", name))).await;
+                            }
+                        }
+                        BackendCommand::RemoveAutostart(id) => {
+                            let res = apps_backend.remove_autostart_entry(&id).await;
+                            if res.is_ok() {
+                                let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Removed startup entry '{}'.", id))).await;
+                                if let Ok(entries) = apps_backend.get_autostart_entries().await {
+                                    let _ = tx_cmd_resp.send(AppEvent::UpdateAutostartApps(entries)).await;
+                                }
+                            } else {
+                                let _ = tx_cmd_resp.send(AppEvent::Notification(format!("Failed to remove startup entry '{}'.", id))).await;
+                            }
+                        }
                         BackendCommand::SystemPowerAction(action) => {
                             use crate::backends::SystemBackend;
                             if let Err(e) = sys_backend_for_cmd.power_action(&action).await {
@@ -3355,6 +3477,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         let defs = apps_backend.get_default_apps().await.ok();
                         let _ = tx_backend.send(AppEvent::UpdateApplications(apps, defs)).await;
                     }
+                    if let Ok(autostart) = apps_backend.get_autostart_entries().await {
+                        let _ = tx_backend.send(AppEvent::UpdateAutostartApps(autostart)).await;
+                    }
                     if let Some(inp) = &input_backend {
                         if let Ok(settings) = inp.get_settings().await {
                             let _ = tx_backend.send(AppEvent::UpdateInputSettings(settings)).await;
@@ -3412,6 +3537,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                     if defs.is_some() {
                         app_lock.default_apps = defs;
                     }
+                }
+                AppEvent::UpdateAutostartApps(autostart) => {
+                    app_lock.autostart_apps = autostart;
                 }
                 AppEvent::UpdateInputSettings(settings) => {
                     app_lock.input_settings = Some(settings);
@@ -4422,6 +4550,81 @@ mod tests {
             assert!(forward, "Enter should cycle suspend delay forward");
         } else {
             panic!("Expected CycleSuspendDelay command on Enter key");
+        }
+    }
+
+    #[test]
+    fn test_autostart_search_and_toggle() {
+        let mut app = App::new();
+        app.autostart_apps = vec![crate::backends::AutostartEntry {
+            id: "test-startup.desktop".to_string(),
+            name: "Test Daemon".to_string(),
+            description: "Background worker".to_string(),
+            exec: "test-daemon --start".to_string(),
+            enabled: true,
+            user_owned: true,
+        }];
+        app.applications = vec![crate::backends::AppEntry {
+            id: "editor.desktop".to_string(),
+            name: "Awesome Editor".to_string(),
+            description: "Code editor".to_string(),
+            exec: "awesome-editor".to_string(),
+            is_flatpak: false,
+        }];
+
+        // Search test
+        app.search_query = "daemon".to_string();
+        app.update_search_results();
+        assert!(!app.search_results.is_empty());
+        assert_eq!(app.search_results[0].title, "Startup: Test Daemon");
+        assert_eq!(app.search_results[0].category, "Applications");
+        assert_eq!(app.search_results[0].target_item_idx, 0);
+        app.search_query.clear();
+
+        // Content navigation and toggle
+        let (tx, mut rx) = mpsc::channel(10);
+        app.cmd_tx = Some(tx);
+        let apps_idx = app
+            .categories
+            .iter()
+            .position(|c| c == "Applications")
+            .unwrap();
+        app.selected_category = apps_idx;
+        app.focus = Focus::Content;
+        app.selected_item = 0;
+
+        // Toggle startup entry (Enter key)
+        app.handle_key(press(KeyCode::Enter));
+        if let Ok(BackendCommand::ToggleAutostart(id, enable)) = rx.try_recv() {
+            assert_eq!(id, "test-startup.desktop");
+            assert!(
+                !enable,
+                "Toggling an enabled entry should request disable (false)"
+            );
+        } else {
+            panic!("Expected ToggleAutostart command on Enter key");
+        }
+
+        // Delete startup entry (Delete key)
+        app.handle_key(press(KeyCode::Delete));
+        assert!(
+            app.confirm_action.is_some(),
+            "Delete should show confirm modal"
+        );
+        let (prompt, cmd) = app.confirm_action.take().unwrap();
+        assert!(prompt.contains("Test Daemon"));
+        match cmd {
+            BackendCommand::RemoveAutostart(id) => assert_eq!(id, "test-startup.desktop"),
+            _ => panic!("Expected RemoveAutostart in confirm dialog"),
+        }
+
+        // Move to installed app (item 1) and press 's' to add to startup
+        app.selected_item = 1;
+        app.handle_key(press(KeyCode::Char('s')));
+        if let Ok(BackendCommand::AddAutostart(app_entry)) = rx.try_recv() {
+            assert_eq!(app_entry.name, "Awesome Editor");
+        } else {
+            panic!("Expected AddAutostart command on 's' key");
         }
     }
 }

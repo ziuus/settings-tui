@@ -1,4 +1,4 @@
-use super::{AppEntry, ApplicationsBackend, DefaultAppsInfo};
+use super::{AppEntry, ApplicationsBackend, AutostartEntry, DefaultAppsInfo};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use std::collections::HashSet;
@@ -6,6 +6,78 @@ use std::fs;
 use std::path::Path;
 
 pub struct DesktopEntryBackend;
+
+fn get_user_autostart_dir() -> Option<std::path::PathBuf> {
+    if let Ok(config_home) = std::env::var("XDG_CONFIG_HOME") {
+        Some(std::path::PathBuf::from(config_home).join("autostart"))
+    } else if let Ok(home) = std::env::var("HOME") {
+        Some(std::path::PathBuf::from(home).join(".config/autostart"))
+    } else {
+        None
+    }
+}
+
+pub fn parse_autostart_content(
+    content: &str,
+    file_name: &str,
+    user_owned: bool,
+) -> Option<AutostartEntry> {
+    let mut name = String::new();
+    let mut description = String::new();
+    let mut exec = String::new();
+    let mut is_hidden = false;
+    let mut autostart_enabled = true;
+    let mut in_desktop_entry = false;
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line == "[Desktop Entry]" {
+            in_desktop_entry = true;
+            continue;
+        } else if line.starts_with('[') {
+            in_desktop_entry = false;
+        }
+
+        if in_desktop_entry {
+            if line.starts_with("Name=") && name.is_empty() {
+                name = line.strip_prefix("Name=").unwrap_or("").to_string();
+            } else if (line.starts_with("Comment=") || line.starts_with("GenericName="))
+                && description.is_empty()
+            {
+                description = line
+                    .split_once('=')
+                    .map(|(_, v)| v)
+                    .unwrap_or("")
+                    .to_string();
+            } else if line.starts_with("Exec=") && exec.is_empty() {
+                exec = line.strip_prefix("Exec=").unwrap_or("").to_string();
+            } else if let Some((_, val)) = line.split_once("Hidden=") {
+                is_hidden = val.trim().eq_ignore_ascii_case("true");
+            } else if let Some((_, val)) = line.split_once("X-GNOME-Autostart-enabled=") {
+                autostart_enabled = val.trim().eq_ignore_ascii_case("true");
+            }
+        }
+    }
+
+    if name.is_empty() && !exec.is_empty() {
+        name = file_name.trim_end_matches(".desktop").to_string();
+    }
+
+    if name.is_empty() && exec.is_empty() {
+        return None;
+    }
+
+    let enabled = !is_hidden && autostart_enabled;
+
+    Some(AutostartEntry {
+        id: file_name.to_string(),
+        name,
+        description,
+        exec,
+        enabled,
+        user_owned,
+    })
+}
 
 /// Tokenizes a desktop file Exec= line, preserving quoted arguments and stripping % field codes.
 pub fn parse_exec_args(exec: &str) -> Vec<String> {
@@ -192,6 +264,157 @@ impl ApplicationsBackend for DesktopEntryBackend {
             text_editor: query_mime("text/plain"),
         })
     }
+
+    async fn get_autostart_entries(&self) -> Result<Vec<AutostartEntry>> {
+        let mut entries = Vec::new();
+        let mut seen_ids = HashSet::new();
+
+        // 1. User autostart directory takes precedence
+        if let Some(user_dir) = get_user_autostart_dir() {
+            if let Ok(read_dir) = fs::read_dir(&user_dir) {
+                for entry in read_dir.flatten() {
+                    let path = entry.path();
+                    if path.is_file() && path.extension().is_some_and(|e| e == "desktop") {
+                        if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                            if let Ok(content) = fs::read_to_string(&path) {
+                                if let Some(item) =
+                                    parse_autostart_content(&content, file_name, true)
+                                {
+                                    seen_ids.insert(file_name.to_string());
+                                    entries.push(item);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. System autostart directory (/etc/xdg/autostart)
+        let sys_dir = std::path::Path::new("/etc/xdg/autostart");
+        if sys_dir.exists() {
+            if let Ok(read_dir) = fs::read_dir(sys_dir) {
+                for entry in read_dir.flatten() {
+                    let path = entry.path();
+                    if path.is_file() && path.extension().is_some_and(|e| e == "desktop") {
+                        if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                            if !seen_ids.contains(file_name) {
+                                if let Ok(content) = fs::read_to_string(&path) {
+                                    if let Some(item) =
+                                        parse_autostart_content(&content, file_name, false)
+                                    {
+                                        seen_ids.insert(file_name.to_string());
+                                        entries.push(item);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        entries.sort_by_key(|e| e.name.to_lowercase());
+        Ok(entries)
+    }
+
+    async fn toggle_autostart_entry(&self, id: &str, enable: bool) -> Result<()> {
+        let user_dir = get_user_autostart_dir()
+            .ok_or_else(|| anyhow!("Could not determine user autostart dir"))?;
+        fs::create_dir_all(&user_dir)?;
+        let target_path = user_dir.join(id);
+
+        let content = if target_path.exists() {
+            fs::read_to_string(&target_path)?
+        } else {
+            let sys_path = std::path::Path::new("/etc/xdg/autostart").join(id);
+            if sys_path.exists() {
+                fs::read_to_string(&sys_path)?
+            } else {
+                return Err(anyhow!("Autostart file {} not found", id));
+            }
+        };
+
+        let mut new_lines = Vec::new();
+        let mut in_desktop_entry = false;
+        let mut had_hidden = false;
+        let mut had_gnome = false;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed == "[Desktop Entry]" {
+                in_desktop_entry = true;
+                new_lines.push(line.to_string());
+                continue;
+            } else if trimmed.starts_with('[') {
+                if in_desktop_entry {
+                    if !had_hidden {
+                        new_lines.push(format!("Hidden={}", !enable));
+                    }
+                    if !had_gnome {
+                        new_lines.push(format!("X-GNOME-Autostart-enabled={}", enable));
+                    }
+                }
+                in_desktop_entry = false;
+                new_lines.push(line.to_string());
+                continue;
+            }
+
+            if in_desktop_entry {
+                if trimmed.starts_with("Hidden=") {
+                    had_hidden = true;
+                    new_lines.push(format!("Hidden={}", !enable));
+                    continue;
+                } else if trimmed.starts_with("X-GNOME-Autostart-enabled=") {
+                    had_gnome = true;
+                    new_lines.push(format!("X-GNOME-Autostart-enabled={}", enable));
+                    continue;
+                }
+            }
+            new_lines.push(line.to_string());
+        }
+
+        if in_desktop_entry {
+            if !had_hidden {
+                new_lines.push(format!("Hidden={}", !enable));
+            }
+            if !had_gnome {
+                new_lines.push(format!("X-GNOME-Autostart-enabled={}", enable));
+            }
+        }
+
+        fs::write(&target_path, new_lines.join("\n"))?;
+        Ok(())
+    }
+
+    async fn remove_autostart_entry(&self, id: &str) -> Result<()> {
+        let user_dir = get_user_autostart_dir()
+            .ok_or_else(|| anyhow!("Could not determine user autostart dir"))?;
+        let target_path = user_dir.join(id);
+        if target_path.exists() {
+            let _ = fs::remove_file(target_path);
+        }
+        Ok(())
+    }
+
+    async fn add_autostart_app(&self, app: &AppEntry) -> Result<()> {
+        let user_dir = get_user_autostart_dir()
+            .ok_or_else(|| anyhow!("Could not determine user autostart dir"))?;
+        fs::create_dir_all(&user_dir)?;
+        let file_name = if app.id.ends_with(".desktop") {
+            app.id.clone()
+        } else {
+            format!("{}.desktop", app.id)
+        };
+        let target_path = user_dir.join(&file_name);
+
+        let content = format!(
+            "[Desktop Entry]\nType=Application\nName={}\nComment={}\nExec={}\nHidden=false\nX-GNOME-Autostart-enabled=true\nTerminal=false\n",
+            app.name, app.description, app.exec
+        );
+        fs::write(target_path, content)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -267,5 +490,41 @@ Exec=flatpak run org.gimp.GIMP %U
         let app = DesktopEntryBackend::parse_desktop_content(content, "org.gimp.GIMP.desktop")
             .expect("Should parse flatpak desktop");
         assert!(app.is_flatpak);
+    }
+
+    #[test]
+    fn test_parse_autostart_content_enabled() {
+        let content = r#"
+[Desktop Entry]
+Type=Application
+Name=Handy Notes
+Comment=Quick floating notes
+Exec=handy-notes
+Hidden=false
+X-GNOME-Autostart-enabled=true
+"#;
+        let entry = parse_autostart_content(content, "handy.desktop", true)
+            .expect("Should parse valid autostart entry");
+        assert_eq!(entry.id, "handy.desktop");
+        assert_eq!(entry.name, "Handy Notes");
+        assert_eq!(entry.description, "Quick floating notes");
+        assert_eq!(entry.exec, "handy-notes");
+        assert!(entry.enabled);
+        assert!(entry.user_owned);
+    }
+
+    #[test]
+    fn test_parse_autostart_content_disabled() {
+        let content = r#"
+[Desktop Entry]
+Type=Application
+Name=Disabled Tool
+Exec=disabled-tool
+Hidden=true
+"#;
+        let entry = parse_autostart_content(content, "disabled.desktop", false)
+            .expect("Should parse disabled autostart entry");
+        assert!(!entry.enabled);
+        assert!(!entry.user_owned);
     }
 }
