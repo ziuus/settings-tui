@@ -31,7 +31,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         let control = widgets::value_selector(&format!("< {} >", bar), is_selected);
         let row_lines = widgets::setting_row(
             "Display Brightness",
-            "Adjust screen backlight level using [< / >] or [- / +]",
+            "Adjust screen backlight: [< / >] (1%), [- / +] (5%), [Shift+< / >] (5%)",
             control,
             is_selected,
             60,

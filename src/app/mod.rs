@@ -1206,7 +1206,15 @@ impl App {
                             && self.selected_item == 0
                         {
                             if let Some(cur) = self.display_brightness {
-                                let new_val = cur.saturating_add(5).min(100);
+                                let step = if key
+                                    .modifiers
+                                    .contains(crossterm::event::KeyModifiers::SHIFT)
+                                {
+                                    5
+                                } else {
+                                    1
+                                };
+                                let new_val = cur.saturating_add(step).min(100);
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ =
                                         tx.try_send(BackendCommand::SetDisplayBrightness(new_val));
@@ -1217,7 +1225,15 @@ impl App {
                             && self.selected_item == 3
                         {
                             if let Some(cur) = &self.input_settings {
-                                let new_val = (cur.sensitivity + 0.05).min(1.0);
+                                let step = if key
+                                    .modifiers
+                                    .contains(crossterm::event::KeyModifiers::SHIFT)
+                                {
+                                    0.05
+                                } else {
+                                    0.01
+                                };
+                                let new_val = (cur.sensitivity + step).min(1.0);
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ =
                                         tx.try_send(BackendCommand::SetPointerSensitivity(new_val));
@@ -1312,7 +1328,15 @@ impl App {
                             && self.selected_item == 0
                         {
                             if let Some(cur) = self.display_brightness {
-                                let new_val = cur.saturating_sub(5);
+                                let step = if key
+                                    .modifiers
+                                    .contains(crossterm::event::KeyModifiers::SHIFT)
+                                {
+                                    5
+                                } else {
+                                    1
+                                };
+                                let new_val = cur.saturating_sub(step);
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ =
                                         tx.try_send(BackendCommand::SetDisplayBrightness(new_val));
@@ -1325,7 +1349,15 @@ impl App {
                             && self.selected_item == 3
                         {
                             if let Some(cur) = &self.input_settings {
-                                let new_val = (cur.sensitivity - 0.05).max(-1.0);
+                                let step = if key
+                                    .modifiers
+                                    .contains(crossterm::event::KeyModifiers::SHIFT)
+                                {
+                                    0.05
+                                } else {
+                                    0.01
+                                };
+                                let new_val = (cur.sensitivity - step).max(-1.0);
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ =
                                         tx.try_send(BackendCommand::SetPointerSensitivity(new_val));
@@ -1911,10 +1943,18 @@ impl App {
                             };
 
                             if id != 0 {
-                                let mut new_vol = if increase {
-                                    current_vol + 0.05
+                                let step = if key
+                                    .modifiers
+                                    .contains(crossterm::event::KeyModifiers::SHIFT)
+                                {
+                                    0.01
                                 } else {
-                                    current_vol - 0.05
+                                    0.05
+                                };
+                                let mut new_vol = if increase {
+                                    current_vol + step
+                                } else {
+                                    current_vol - step
                                 };
                                 new_vol = new_vol.clamp(0.0, 1.0);
                                 if let Some(tx) = &self.cmd_tx {
@@ -1929,10 +1969,18 @@ impl App {
 
                             if has_brightness && self.selected_item == 0 {
                                 if let Some(cur) = self.display_brightness {
-                                    let new_val = if increase {
-                                        cur.saturating_add(5).min(100)
+                                    let step = if key
+                                        .modifiers
+                                        .contains(crossterm::event::KeyModifiers::SHIFT)
+                                    {
+                                        1
                                     } else {
-                                        cur.saturating_sub(5)
+                                        5
+                                    };
+                                    let new_val = if increase {
+                                        cur.saturating_add(step).min(100)
+                                    } else {
+                                        cur.saturating_sub(step)
                                     };
                                     if let Some(tx) = &self.cmd_tx {
                                         let _ = tx.try_send(BackendCommand::SetDisplayBrightness(
@@ -3900,6 +3948,15 @@ mod tests {
         }
     }
 
+    fn press_with_mod(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        }
+    }
+
     #[test]
     fn test_app_navigation() {
         let mut app = App::new();
@@ -4275,28 +4332,52 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(10);
         app.cmd_tx = Some(tx);
 
-        // Increase via '+'
+        // Increase via '+' (5% jump)
         app.handle_key(press(KeyCode::Char('+')));
         if let Ok(BackendCommand::SetDisplayBrightness(val)) = rx.try_recv() {
-            assert_eq!(val, 55, "Brightness should increase by 5");
+            assert_eq!(val, 55, "Brightness should increase by 5 on '+'");
         } else {
             panic!("Expected SetDisplayBrightness command on '+'");
         }
 
-        // Decrease via '-'
+        // Decrease via '-' (5% jump)
         app.handle_key(press(KeyCode::Char('-')));
         if let Ok(BackendCommand::SetDisplayBrightness(val)) = rx.try_recv() {
-            assert_eq!(val, 45, "Brightness should decrease by 5");
+            assert_eq!(val, 45, "Brightness should decrease by 5 on '-'");
         } else {
             panic!("Expected SetDisplayBrightness command on '-'");
         }
 
-        // Right key also increases
+        // Right arrow single-digit step (1%)
         app.handle_key(press(KeyCode::Right));
         if let Ok(BackendCommand::SetDisplayBrightness(val)) = rx.try_recv() {
-            assert_eq!(val, 55, "Brightness should increase on Right arrow");
+            assert_eq!(val, 51, "Brightness should increase by 1 on Right arrow");
         } else {
             panic!("Expected SetDisplayBrightness command on Right");
+        }
+
+        // Left arrow single-digit step (1%)
+        app.handle_key(press(KeyCode::Left));
+        if let Ok(BackendCommand::SetDisplayBrightness(val)) = rx.try_recv() {
+            assert_eq!(val, 49, "Brightness should decrease by 1 on Left arrow");
+        } else {
+            panic!("Expected SetDisplayBrightness command on Left");
+        }
+
+        // Shift+Right arrow step (5%)
+        app.handle_key(press_with_mod(KeyCode::Right, KeyModifiers::SHIFT));
+        if let Ok(BackendCommand::SetDisplayBrightness(val)) = rx.try_recv() {
+            assert_eq!(val, 55, "Brightness should increase by 5 on Shift+Right");
+        } else {
+            panic!("Expected SetDisplayBrightness command on Shift+Right");
+        }
+
+        // Shift+'+' fine-tuning step (1%)
+        app.handle_key(press_with_mod(KeyCode::Char('+'), KeyModifiers::SHIFT));
+        if let Ok(BackendCommand::SetDisplayBrightness(val)) = rx.try_recv() {
+            assert_eq!(val, 51, "Brightness should increase by 1 on Shift+'+'");
+        } else {
+            panic!("Expected SetDisplayBrightness command on Shift+'+'");
         }
     }
 
@@ -4693,20 +4774,28 @@ mod tests {
         // Item 3: Pointer speed
         app.selected_item = 3;
 
-        // Press Right arrow -> increase by 0.05
+        // Press Right arrow -> single-digit fine step by 0.01
         app.handle_key(press(KeyCode::Right));
+        if let Ok(BackendCommand::SetPointerSensitivity(val)) = rx.try_recv() {
+            assert!((val - 0.21).abs() < 1e-4);
+        } else {
+            panic!("Expected SetPointerSensitivity(0.21)");
+        }
+
+        // Press Left arrow -> single-digit fine step by 0.01
+        app.handle_key(press(KeyCode::Left));
+        if let Ok(BackendCommand::SetPointerSensitivity(val)) = rx.try_recv() {
+            assert!((val - 0.19).abs() < 1e-4);
+        } else {
+            panic!("Expected SetPointerSensitivity(0.19)");
+        }
+
+        // Press Shift+Right -> coarse step by 0.05
+        app.handle_key(press_with_mod(KeyCode::Right, KeyModifiers::SHIFT));
         if let Ok(BackendCommand::SetPointerSensitivity(val)) = rx.try_recv() {
             assert!((val - 0.25).abs() < 1e-4);
         } else {
-            panic!("Expected SetPointerSensitivity(0.25)");
-        }
-
-        // Press Left arrow -> decrease by 0.05
-        app.handle_key(press(KeyCode::Left));
-        if let Ok(BackendCommand::SetPointerSensitivity(val)) = rx.try_recv() {
-            assert!((val - 0.15).abs() < 1e-4);
-        } else {
-            panic!("Expected SetPointerSensitivity(0.15)");
+            panic!("Expected SetPointerSensitivity(0.25) with Shift");
         }
     }
 
