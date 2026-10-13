@@ -14,8 +14,6 @@
 
 <br/>
 
-<video src="assets/demo.mp4" autoplay loop muted playsinline width="100%"></video>
-<br/>
 ![Settings TUI](assets/screenshot.png)
 
 <br/>
