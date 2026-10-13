@@ -31,8 +31,29 @@ if (!binPath) {
 }
 
 if (!binPath) {
+  try {
+    const downloadUrl = 'https://github.com/ziuus/settings-tui/releases/download/v0.1.14/settings-tui-v0.1.14-x86_64-unknown-linux-gnu.tar.gz';
+    const destDir = path.join(__dirname);
+    const destTar = path.join(destDir, 'settings-tui.tar.gz');
+    process.stderr.write('Downloading precompiled settings-tui binary...\n');
+    const curlRes = spawnSync('curl', ['-fSL', downloadUrl, '-o', destTar], { stdio: 'inherit' });
+    if (curlRes.status === 0 && fs.existsSync(destTar)) {
+      spawnSync('tar', ['-xzf', destTar, '-C', destDir], { stdio: 'inherit' });
+      if (fs.existsSync(destTar)) fs.unlinkSync(destTar);
+      const downloadedBin = path.join(destDir, 'settings-tui');
+      if (fs.existsSync(downloadedBin)) {
+        fs.chmodSync(downloadedBin, 0o755);
+        binPath = downloadedBin;
+      }
+    }
+  } catch (_err) {
+    // download fallback failed
+  }
+}
+
+if (!binPath) {
   console.error('Error: settings-tui binary could not be located.');
-  console.error('Ensure Rust/Cargo is installed or install settings-tui via: cargo install settings-tui');
+  console.error('Ensure Rust/Cargo is installed or download prebuilt releases from: https://github.com/ziuus/settings-tui/releases');
   process.exit(1);
 }
 
