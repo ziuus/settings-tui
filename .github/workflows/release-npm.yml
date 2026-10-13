@@ -45,4 +45,11 @@ jobs:
           node-version: '20.x'
 
       - name: Publish to npm (Trusted Publishing / OIDC)
-        run: npx npm@latest publish --provenance --access public
+        run: |
+          CURRENT_VER=$(node -p "require('./package.json').version")
+          if npm view settings-tui@"$CURRENT_VER" version >/dev/null 2>&1; then
+            echo "settings-tui@$CURRENT_VER is already published on npm. Skipping publish step."
+          else
+            npx npm@latest publish --provenance --access public
+          fi
+
