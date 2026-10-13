@@ -1,0 +1,21 @@
+pkgbase = settings-tui-bin
+	pkgdesc = A hyper-lightweight (<9MB, near 0% CPU) universal Linux Settings Center for the terminal written in Rust
+	pkgver = 0.1.14
+	pkgrel = 1
+	url = https://github.com/ziuus/settings-tui
+	arch = x86_64
+	license = MIT
+	depends = dbus
+	optdepends = bluez: Bluetooth management support
+	optdepends = networkmanager: Wi-Fi and VPN management support
+	optdepends = pipewire: Audio sink/source controls
+	optdepends = wireplumber: WirePlumber audio controls
+	optdepends = hyprland: Hyprland display and monitor management
+	optdepends = upower: Battery telemetry and power profile support
+	optdepends = systemd: Services and systemctl controls
+	provides = settings-tui
+	conflicts = settings-tui
+	source = https://registry.npmjs.org/settings-tui/-/settings-tui-0.1.14.tgz
+	sha256sums = SKIP
+
+pkgname = settings-tui-bin

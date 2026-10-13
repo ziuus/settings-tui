@@ -193,9 +193,16 @@ Checking Linux platform and backend capabilities...
 
 ---
 
-## 🤝 Contributing
+## 🤝 Contributing & Community Roadmap
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for architectural overview, coding standards, test suite guidelines, and local development setup.
+Contributions of all sizes are welcome! Please check out [CONTRIBUTING.md](CONTRIBUTING.md) for local dev setup, coding standards, and testing guidelines.
+
+Looking for a place to start? We actively welcome PRs for:
+* **Compositor Backends**: Sway/wlroots output management (`wlr-output-management-unstable-v1`), KDE Wayland, GNOME Mutter IPC.
+* **Init Systems**: OpenRC / runit support for the Services page alongside systemd.
+* **Network & VPN**: WireGuard quick-toggle support, `iwd` alternative backend for NetworkManager.
+* **Audio & Profiles**: Bluetooth audio codec switching (LDAC, aptX) via WirePlumber.
+* **Packaging**: Distro packages (AUR, Nixpkgs, Alpine APKBUILD, Debian/Ubuntu PPA).
 
 For autonomous AI coding assistants, see [AGENTS.md](AGENTS.md) for architectural invariants, state patterns, and guidelines.
 
