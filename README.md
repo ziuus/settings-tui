@@ -206,14 +206,9 @@ For autonomous AI coding assistants, see [AGENTS.md](AGENTS.md) for architectura
 
 ---
 
-## 💖 Support the Project
+## 🧩 Ecosystem & Companion Tools
 
-If you find `settings-tui` useful and want to support its ongoing development, consider donating! Your support helps keep this tool well-maintained and natively integrated with the ever-changing Linux ecosystem.
-
-- [☕ Buy Me a Coffee](https://buymeacoffee.com/YOUR_USERNAME)
-- [🍩 Ko-fi](https://ko-fi.com/YOUR_USERNAME)
-- [🤝 Patreon](https://patreon.com/YOUR_USERNAME)
-- [💳 PayPal](https://paypal.me/YOUR_USERNAME)
+* **[orbit-tui](https://github.com/ziuus/orbit-tui)** — Extensible terminal workspace and system telemetry dashboard written in Rust (CPU, RAM, GPU, network, audio visualizer).
 
 ---
 
