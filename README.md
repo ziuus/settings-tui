@@ -76,9 +76,13 @@ cargo build --release
 sudo make install
 ```
 
-### 4. Arch Linux
+### 4. Arch Linux (AUR)
 ```bash
-cd extra && makepkg -si
+# Using yay:
+yay -S settings-tui-bin
+
+# Or using paru:
+paru -S settings-tui-bin
 ```
 
 ---
