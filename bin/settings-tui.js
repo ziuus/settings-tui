@@ -32,7 +32,9 @@ if (!binPath) {
 
 if (!binPath) {
   try {
-    const downloadUrl = 'https://github.com/ziuus/settings-tui/releases/download/v0.1.14/settings-tui-v0.1.14-x86_64-unknown-linux-gnu.tar.gz';
+    const pkg = require('../package.json');
+    const ver = pkg.version || '0.1.15';
+    const downloadUrl = `https://github.com/ziuus/settings-tui/releases/download/v${ver}/settings-tui-v${ver}-x86_64-unknown-linux-gnu.tar.gz`;
     const destDir = path.join(__dirname);
     const destTar = path.join(destDir, 'settings-tui.tar.gz');
     process.stderr.write('Downloading precompiled settings-tui binary...\n');
