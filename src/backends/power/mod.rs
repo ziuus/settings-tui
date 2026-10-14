@@ -330,6 +330,9 @@ impl PowerBackend for UPowerBackend {
             "hyprlock".to_string()
         };
         let _ = set_hypridle_timeout("hyprlock", seconds, &lock_cmd);
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "restart", "hypridle.service"])
+            .status();
 
         let _ = std::process::Command::new("gsettings")
             .args([
@@ -344,6 +347,9 @@ impl PowerBackend for UPowerBackend {
 
     async fn set_suspend_delay(&self, seconds: u32) -> Result<()> {
         let _ = set_hypridle_timeout("suspend", seconds, "systemctl suspend");
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "restart", "hypridle.service"])
+            .status();
 
         let content = if seconds == 0 {
             "[Login]\nIdleAction=ignore\n".to_string()
