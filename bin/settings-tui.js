@@ -5,10 +5,10 @@ const path = require('path');
 const fs = require('fs');
 
 const possiblePaths = [
-  path.join(__dirname, '..', 'target', 'release', 'settings-tui'),
-  path.join(__dirname, 'settings-tui'),
+  '/usr/bin/settings-tui',
   '/usr/local/bin/settings-tui',
-  '/usr/bin/settings-tui'
+  path.join(__dirname, 'settings-tui'),
+  path.join(__dirname, '..', 'target', 'release', 'settings-tui')
 ];
 
 let binPath = possiblePaths.find(p => fs.existsSync(p) && fs.statSync(p).isFile());
