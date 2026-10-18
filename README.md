@@ -6,8 +6,9 @@
 
 [![CI](https://github.com/ziuus/settings-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/ziuus/settings-tui/actions/workflows/ci.yml)
 [![GitHub stars](https://img.shields.io/github/stars/ziuus/settings-tui.svg?style=flat&color=yellow)](https://github.com/ziuus/settings-tui/stargazers)
+[![Crates.io](https://img.shields.io/crates/v/settings-tui.svg?style=flat&color=fc8c34)](https://crates.io/crates/settings-tui)
+[![Crates.io Downloads](https://img.shields.io/crates/d/settings-tui.svg?style=flat&color=fc8c34)](https://crates.io/crates/settings-tui)
 [![npm downloads](https://img.shields.io/npm/dt/settings-tui.svg?style=flat&color=CB3837)](https://www.npmjs.com/package/settings-tui)
-[![npm version](https://img.shields.io/npm/v/settings-tui.svg?style=flat&color=CB3837)](https://www.npmjs.com/package/settings-tui)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE-MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.75+-dea584.svg)](https://www.rust-lang.org)
 [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)]()
@@ -51,14 +52,28 @@
 ---
 
 ## 🚀 Quick Start
+ 
+### 1. Cargo (Crates.io)
+```bash
+cargo install settings-tui
+```
 
-### 1. Instant Run via npx (Zero Install)
+### 2. Arch Linux (AUR)
+```bash
+# Using yay:
+yay -S settings-tui-bin
+
+# Or using paru:
+paru -S settings-tui-bin
+```
+
+### 3. Instant Run via npx (Zero Install)
 You can launch `settings-tui` immediately without compiling:
 ```bash
 npx settings-tui
 ```
 
-### 2. Install Globally via npm
+### 4. Install Globally via npm
 ```bash
 npm install -g settings-tui
 
@@ -68,21 +83,12 @@ settings-tui
 settings
 ```
 
-### 3. Build & Install from Source (Cargo)
+### 5. Build & Install from Source
 ```bash
 git clone https://github.com/ziuus/settings-tui.git
 cd settings-tui
 cargo build --release
 sudo make install
-```
-
-### 4. Arch Linux (AUR)
-```bash
-# Using yay:
-yay -S settings-tui-bin
-
-# Or using paru:
-paru -S settings-tui-bin
 ```
 
 ---
