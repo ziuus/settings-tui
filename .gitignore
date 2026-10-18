@@ -1,5 +1,10 @@
 /target
 
+# Binaries and archives
+/bin/settings-tui
+*.tar.gz
+*.sha256
+
 # Scratch and patches
 /scratch/
 *.patch

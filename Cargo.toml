@@ -9,6 +9,13 @@ homepage = "https://github.com/ziuus/settings-tui"
 readme = "README.md"
 keywords = ["tui", "ratatui", "settings", "linux", "hyprland"]
 categories = ["command-line-utilities"]
+exclude = [
+    "bin/*",
+    "*.tar.gz",
+    "*.sha256",
+    ".github/*",
+    "assets/*",
+]
 
 [dependencies]
 ratatui = { version = "0.26", features = ["crossterm"] }
