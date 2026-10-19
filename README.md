@@ -55,6 +55,10 @@
  
 ### 1. Cargo (Crates.io)
 ```bash
+# Fast prebuilt binary install:
+cargo binstall settings-tui
+
+# Or compile from source:
 cargo install settings-tui
 ```
 
