@@ -14,7 +14,7 @@ env:
 jobs:
   publish-npm:
     name: Build Binary & Publish to npm
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     environment: settings-tui-github-actions
     permissions:
       contents: write
@@ -51,5 +51,17 @@ jobs:
             echo "settings-tui@$CURRENT_VER is already published on npm. Skipping publish step."
           else
             npx npm@latest publish --provenance --access public
+          fi
+
+      - name: Upload Release Tarball to GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CURRENT_VER=$(node -p "require('./package.json').version")
+          TARBALL="settings-tui-v${CURRENT_VER}-x86_64-unknown-linux-gnu.tar.gz"
+          tar -czf "$TARBALL" -C bin settings-tui
+          sha256sum "$TARBALL" > "$TARBALL.sha256"
+          if gh release view "v${CURRENT_VER}" >/dev/null 2>&1; then
+            gh release upload "v${CURRENT_VER}" "$TARBALL" "$TARBALL.sha256" --clobber
           fi
 
