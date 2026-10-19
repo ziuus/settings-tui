@@ -692,63 +692,84 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             .unwrap_or_else(|| "General".to_string());
 
         let mut lines = vec![
-            Line::from(vec![
-                Span::styled(
-                    "⌨️  KEYBOARD SHORTCUTS CHEATSHEET",
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-                ),
-            ]),
+            Line::from(vec![Span::styled(
+                "⌨️  KEYBOARD SHORTCUTS CHEATSHEET",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )]),
             Line::from(""),
-            Line::from(vec![
-                Span::styled(
-                    "Navigation & Global",
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                ),
-            ]),
+            Line::from(vec![Span::styled(
+                "Navigation & Global",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )]),
             Line::from(vec![
                 Span::styled("  ↑/↓      ", Style::default().fg(Color::Cyan)),
-                Span::styled("Navigate categories / items     ", Style::default().fg(Color::White)),
+                Span::styled(
+                    "Navigate categories / items     ",
+                    Style::default().fg(Color::White),
+                ),
                 Span::styled("Tab      ", Style::default().fg(Color::Cyan)),
                 Span::styled("Switch pane", Style::default().fg(Color::White)),
             ]),
             Line::from(vec![
                 Span::styled("  ←/→ h/l  ", Style::default().fg(Color::Cyan)),
-                Span::styled("Switch panes / adjust sliders  ", Style::default().fg(Color::White)),
+                Span::styled(
+                    "Switch panes / adjust sliders  ",
+                    Style::default().fg(Color::White),
+                ),
                 Span::styled("/        ", Style::default().fg(Color::Cyan)),
                 Span::styled("Fuzzy search", Style::default().fg(Color::White)),
             ]),
             Line::from(vec![
                 Span::styled("  ?        ", Style::default().fg(Color::Cyan)),
-                Span::styled("Toggle this help cheatsheet    ", Style::default().fg(Color::White)),
+                Span::styled(
+                    "Toggle this help cheatsheet    ",
+                    Style::default().fg(Color::White),
+                ),
                 Span::styled("q        ", Style::default().fg(Color::Red)),
                 Span::styled("Quit", Style::default().fg(Color::White)),
             ]),
             Line::from(""),
-            Line::from(vec![
-                Span::styled(
-                    format!("Section: {}", active_cat),
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                ),
-            ]),
+            Line::from(vec![Span::styled(
+                format!("Section: {}", active_cat),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )]),
         ];
 
         match active_cat.as_str() {
             "Network" => {
                 lines.push(Line::from(vec![
                     Span::styled("  Enter    ", Style::default().fg(Color::Cyan)),
-                    Span::styled("Connect to network (prompts password if secured)", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Connect to network (prompts password if secured)",
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
                 lines.push(Line::from(vec![
                     Span::styled("  d / Del  ", Style::default().fg(Color::Cyan)),
-                    Span::styled("Disconnect active connection", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Disconnect active connection",
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
                 lines.push(Line::from(vec![
                     Span::styled("  Backspace", Style::default().fg(Color::Red)),
-                    Span::styled("Forget saved Wi-Fi profile", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Forget saved Wi-Fi profile",
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
                 lines.push(Line::from(vec![
                     Span::styled("  r        ", Style::default().fg(Color::Cyan)),
-                    Span::styled("Rescan wireless access points", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Rescan wireless access points",
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
             }
             "Sound" => {
@@ -758,11 +779,17 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 ]));
                 lines.push(Line::from(vec![
                     Span::styled("  +/- h/l  ", Style::default().fg(Color::Cyan)),
-                    Span::styled("Adjust output sink / per-app stream volume", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Adjust output sink / per-app stream volume",
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
                 lines.push(Line::from(vec![
                     Span::styled("  Enter    ", Style::default().fg(Color::Cyan)),
-                    Span::styled("Select default output or input device", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Select default output or input device",
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
             }
             "Bluetooth" => {
@@ -772,7 +799,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 ]));
                 lines.push(Line::from(vec![
                     Span::styled("  Enter    ", Style::default().fg(Color::Cyan)),
-                    Span::styled("Connect / disconnect selected peripheral", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Connect / disconnect selected peripheral",
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
                 lines.push(Line::from(vec![
                     Span::styled("  Backspace", Style::default().fg(Color::Red)),
@@ -782,41 +812,65 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             "Display" => {
                 lines.push(Line::from(vec![
                     Span::styled("  +/- h/l  ", Style::default().fg(Color::Cyan)),
-                    Span::styled("Adjust screen brightness", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Adjust screen brightness",
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
                 lines.push(Line::from(vec![
                     Span::styled("  Enter    ", Style::default().fg(Color::Cyan)),
-                    Span::styled("Apply monitor resolution / refresh rate mode", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Apply monitor resolution / refresh rate mode",
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
             }
             "Power" => {
                 lines.push(Line::from(vec![
                     Span::styled("  Space    ", Style::default().fg(Color::Cyan)),
-                    Span::styled("Cycle power profile (Performance/Balanced/Saver)", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Cycle power profile (Performance/Balanced/Saver)",
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
                 lines.push(Line::from(vec![
                     Span::styled("  Enter    ", Style::default().fg(Color::Cyan)),
-                    Span::styled("Cycle screen lock / suspend timer interval", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Cycle screen lock / suspend timer interval",
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
             }
             "Services" => {
                 lines.push(Line::from(vec![
                     Span::styled("  Space    ", Style::default().fg(Color::Cyan)),
-                    Span::styled("Restart systemd service unit", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Restart systemd service unit",
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
                 lines.push(Line::from(vec![
                     Span::styled("  s        ", Style::default().fg(Color::Red)),
-                    Span::styled("Stop systemd service unit", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Stop systemd service unit",
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
                 lines.push(Line::from(vec![
                     Span::styled("  e        ", Style::default().fg(Color::Cyan)),
-                    Span::styled("Enable / disable unit at system boot", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Enable / disable unit at system boot",
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
             }
             _ => {
                 lines.push(Line::from(vec![
                     Span::styled("  Enter    ", Style::default().fg(Color::Cyan)),
-                    Span::styled("Select or toggle setting", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Select or toggle setting",
+                        Style::default().fg(Color::White),
+                    ),
                 ]));
                 lines.push(Line::from(vec![
                     Span::styled("  Space    ", Style::default().fg(Color::Cyan)),
