@@ -194,6 +194,7 @@ pub struct App {
     pub input_test_events: Vec<String>,
     pub font_modal: Option<String>,
     pub wallpaper_modal: Option<String>, // editing buffer for new hostname
+    pub help_modal: bool,
     pub capabilities: crate::platform::PlatformCapabilities,
 }
 
@@ -232,6 +233,7 @@ impl App {
             input_test_events: Vec::new(),
             font_modal: None,
             wallpaper_modal: None,
+            help_modal: false,
             capabilities: crate::platform::PlatformCapabilities::detect(
                 true, true, true, true, true, true, true, true,
             ),
@@ -1145,6 +1147,16 @@ impl App {
             return;
         }
 
+        if self.help_modal {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') | KeyCode::Enter => {
+                    self.help_modal = false;
+                }
+                _ => {}
+            }
+            return;
+        }
+
         if self.is_searching {
             match key.code {
                 KeyCode::Esc => {
@@ -1193,6 +1205,7 @@ impl App {
 
         match key.code {
             KeyCode::Char('q') => self.should_quit = true,
+            KeyCode::Char('?') => self.help_modal = true,
             KeyCode::Char('/') => self.is_searching = true,
             KeyCode::Right | KeyCode::Char('l') => {
                 if self.focus == Focus::Sidebar {
@@ -5028,5 +5041,31 @@ mod tests {
         } else {
             panic!("Expected AddAutostart command on 's' key");
         }
+    }
+
+    #[test]
+    fn test_help_modal_toggle_and_dismiss() {
+        let mut app = App::new();
+        assert!(!app.help_modal, "Help modal should be closed initially");
+
+        // Press '?' to open
+        app.handle_key(press(KeyCode::Char('?')));
+        assert!(app.help_modal, "Help modal should open on '?'");
+
+        // Esc dismisses
+        app.handle_key(press(KeyCode::Esc));
+        assert!(!app.help_modal, "Help modal should close on Esc");
+
+        // Re-open and close with '?'
+        app.handle_key(press(KeyCode::Char('?')));
+        assert!(app.help_modal);
+        app.handle_key(press(KeyCode::Char('?')));
+        assert!(!app.help_modal, "Help modal should toggle off on '?'");
+
+        // Re-open and close with Enter
+        app.handle_key(press(KeyCode::Char('?')));
+        assert!(app.help_modal);
+        app.handle_key(press(KeyCode::Enter));
+        assert!(!app.help_modal, "Help modal should close on Enter");
     }
 }
