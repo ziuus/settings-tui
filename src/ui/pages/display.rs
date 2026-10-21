@@ -57,6 +57,23 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         text.push(Line::from(""));
     }
 
+    let has_grayscale = app.grayscale_enabled.is_some();
+    if let Some(gray_enabled) = app.grayscale_enabled {
+        let offset = (if has_brightness { 1 } else { 0 }) + (if has_night_light { 1 } else { 0 });
+        let is_selected = content_active && app.selected_item == offset;
+        let control_text = if gray_enabled { "< On >" } else { "< Off >" };
+        let control = widgets::value_selector(control_text, is_selected);
+        let row_lines = widgets::setting_row(
+            "Grayscale Mode",
+            "Monochrome color filter for accessibility and focus",
+            control,
+            is_selected,
+            60,
+        );
+        text.extend(row_lines);
+        text.push(Line::from(""));
+    }
+
     text.push(Line::from(Span::styled(
         "Monitors & Resolutions",
         Style::default()
@@ -65,8 +82,9 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
     )));
     text.push(Line::from(""));
 
-    let monitor_offset =
-        (if has_brightness { 1 } else { 0 }) + (if has_night_light { 1 } else { 0 });
+    let monitor_offset = (if has_brightness { 1 } else { 0 })
+        + (if has_night_light { 1 } else { 0 })
+        + (if has_grayscale { 1 } else { 0 });
 
     if app.monitors.is_empty() {
         text.push(Line::from(Span::styled(

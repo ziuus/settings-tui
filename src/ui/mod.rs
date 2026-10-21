@@ -818,6 +818,13 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     ),
                 ]));
                 lines.push(Line::from(vec![
+                    Span::styled("  Space    ", Style::default().fg(Color::Cyan)),
+                    Span::styled(
+                        "Toggle Night Light / Grayscale mode",
+                        Style::default().fg(Color::White),
+                    ),
+                ]));
+                lines.push(Line::from(vec![
                     Span::styled("  Enter    ", Style::default().fg(Color::Cyan)),
                     Span::styled(
                         "Apply monitor resolution / refresh rate mode",

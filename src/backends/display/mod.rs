@@ -2,6 +2,7 @@ use super::{DisplayBackend, Monitor};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde_json::Value;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub struct HyprlandBackend;
@@ -174,6 +175,14 @@ impl DisplayBackend for HyprlandBackend {
     async fn set_night_light_enabled(&self, enabled: bool, temperature: u32) -> Result<()> {
         apply_night_light(enabled, temperature)
     }
+
+    async fn is_grayscale_enabled(&self) -> Result<Option<bool>> {
+        is_grayscale_active()
+    }
+
+    async fn set_grayscale_enabled(&self, enabled: bool) -> Result<()> {
+        apply_grayscale(enabled)
+    }
 }
 
 #[derive(Default)]
@@ -231,6 +240,14 @@ impl DisplayBackend for GenericDisplayBackend {
 
     async fn set_night_light_enabled(&self, enabled: bool, temperature: u32) -> Result<()> {
         apply_night_light(enabled, temperature)
+    }
+
+    async fn is_grayscale_enabled(&self) -> Result<Option<bool>> {
+        is_grayscale_active()
+    }
+
+    async fn set_grayscale_enabled(&self, enabled: bool) -> Result<()> {
+        apply_grayscale(enabled)
     }
 }
 
@@ -300,31 +317,182 @@ fn write_system_brightness(percent: u32) -> Result<()> {
     }
 }
 
+fn binary_exists(bin: &str) -> bool {
+    if let Some(path_var) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let full_path = dir.join(bin);
+            if full_path.is_file() {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if let Ok(meta) = full_path.metadata() {
+                        if meta.permissions().mode() & 0o111 != 0 {
+                            return true;
+                        }
+                    }
+                }
+                #[cfg(not(unix))]
+                return true;
+            }
+        }
+    }
+    false
+}
+
+const GRAYSCALE_SHADER: &str = r#"precision highp float;
+varying vec2 v_texcoord;
+uniform sampler2D tex;
+
+void main() {
+    vec4 pixColor = texture2D(tex, v_texcoord);
+    float gray = dot(pixColor.rgb, vec3(0.299, 0.587, 0.114));
+    gl_FragColor = vec4(vec3(gray), pixColor.a);
+}
+"#;
+
+const NIGHT_LIGHT_SHADER: &str = r#"precision highp float;
+varying vec2 v_texcoord;
+uniform sampler2D tex;
+
+void main() {
+    vec4 pixColor = texture2D(tex, v_texcoord);
+    pixColor.r = min(1.0, pixColor.r * 1.0);
+    pixColor.g = min(1.0, pixColor.g * 0.88);
+    pixColor.b = min(1.0, pixColor.b * 0.70);
+    gl_FragColor = pixColor;
+}
+"#;
+
+fn ensure_shader(filename: &str, content: &str) -> Result<PathBuf> {
+    let base_dir = if let Ok(cfg) = std::env::var("XDG_CONFIG_HOME") {
+        if !cfg.is_empty() {
+            PathBuf::from(cfg).join("settings-tui/shaders")
+        } else {
+            PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
+                .join(".config/settings-tui/shaders")
+        }
+    } else if let Ok(home) = std::env::var("HOME") {
+        PathBuf::from(home).join(".config/settings-tui/shaders")
+    } else {
+        std::env::temp_dir().join("settings-tui-shaders")
+    };
+
+    std::fs::create_dir_all(&base_dir)?;
+    let file_path = base_dir.join(filename);
+    if !file_path.exists() {
+        std::fs::write(&file_path, content)?;
+    }
+    Ok(file_path)
+}
+
+fn is_hyprland_running() -> bool {
+    std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some()
+        || Command::new("hyprctl")
+            .arg("version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+}
+
+fn set_hyprland_screen_shader(shader_path: Option<&Path>) -> Result<()> {
+    let path_str = shader_path.and_then(|p| p.to_str()).unwrap_or("");
+
+    // 1. Try modern Hyprland Lua parser: eval "hl.config({ decoration = { screen_shader = '...' } })"
+    let lua_code = format!(
+        "hl.config({{ decoration = {{ screen_shader = '{}' }} }})",
+        path_str
+    );
+    let eval_out = Command::new("hyprctl").arg("eval").arg(&lua_code).output();
+
+    if let Ok(out) = eval_out {
+        let msg = String::from_utf8_lossy(&out.stdout);
+        if out.status.success() && msg.trim() == "ok" {
+            return Ok(());
+        }
+    }
+
+    // 2. Fallback to legacy Hyprland keyword
+    let legacy_val = if path_str.is_empty() {
+        "[[EMPTY]]"
+    } else {
+        path_str
+    };
+    let kw_out = Command::new("hyprctl")
+        .arg("keyword")
+        .arg("decoration:screen_shader")
+        .arg(legacy_val)
+        .output()?;
+
+    if kw_out.status.success() {
+        Ok(())
+    } else {
+        Err(anyhow!("Failed to set Hyprland screen_shader"))
+    }
+}
+
+fn get_hyprland_screen_shader() -> Option<String> {
+    if let Ok(output) = Command::new("hyprctl")
+        .arg("getoption")
+        .arg("decoration:screen_shader")
+        .arg("-j")
+        .output()
+    {
+        if output.status.success() {
+            if let Ok(val) = serde_json::from_slice::<Value>(&output.stdout) {
+                if let Some(s) = val.get("str").and_then(|v| v.as_str()) {
+                    let trimmed = s.trim();
+                    if !trimmed.is_empty() && trimmed != "[[EMPTY]]" {
+                        return Some(trimmed.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 fn is_night_light_active() -> Result<bool> {
-    // 1. Try hyprsunset (it might not have a simple query, so we can check ps)
+    // 1. Check Hyprland screen_shader
+    if let Some(current) = get_hyprland_screen_shader() {
+        if current.contains("night_light") {
+            return Ok(true);
+        }
+    }
+
+    // 2. Try hyprsunset process
     if let Ok(output) = Command::new("pidof").arg("hyprsunset").output() {
         if output.status.success() && !output.stdout.is_empty() {
             return Ok(true);
         }
     }
-    // 2. Try wlsunset
+
+    // 3. Try wlsunset process
     if let Ok(output) = Command::new("pidof").arg("wlsunset").output() {
         if output.status.success() && !output.stdout.is_empty() {
             return Ok(true);
         }
     }
 
-    // 3. Try GNOME gsettings
-    if let Ok(output) = Command::new("gsettings")
-        .arg("get")
-        .arg("org.gnome.settings-daemon.plugins.color")
-        .arg("night-light-enabled")
-        .output()
-    {
-        if output.status.success() {
-            let res = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if res == "true" {
-                return Ok(true);
+    // 4. Try gammastep process
+    if let Ok(output) = Command::new("pidof").arg("gammastep").output() {
+        if output.status.success() && !output.stdout.is_empty() {
+            return Ok(true);
+        }
+    }
+
+    // 5. Try GNOME gsettings
+    if binary_exists("gsettings") {
+        if let Ok(output) = Command::new("gsettings")
+            .arg("get")
+            .arg("org.gnome.settings-daemon.plugins.color")
+            .arg("night-light-enabled")
+            .output()
+        {
+            if output.status.success() {
+                let res = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if res == "true" {
+                    return Ok(true);
+                }
             }
         }
     }
@@ -332,54 +500,134 @@ fn is_night_light_active() -> Result<bool> {
     Ok(false)
 }
 
-fn apply_night_light(enabled: bool, temperature: u32) -> Result<()> {
-    // Kill existing processes to reset state
-    let _ = Command::new("killall").arg("hyprsunset").output();
-    let _ = Command::new("killall").arg("wlsunset").output();
+fn is_grayscale_active() -> Result<Option<bool>> {
+    if !is_hyprland_running() {
+        return Ok(None);
+    }
+    if let Some(current) = get_hyprland_screen_shader() {
+        if current.contains("grayscale") {
+            return Ok(Some(true));
+        }
+    }
+    Ok(Some(false))
+}
 
+fn apply_night_light(enabled: bool, temperature: u32) -> Result<()> {
     if !enabled {
+        // Kill existing background daemons
+        if binary_exists("killall") {
+            let _ = Command::new("killall").arg("hyprsunset").output();
+            let _ = Command::new("killall").arg("wlsunset").output();
+        }
+        if binary_exists("gammastep") {
+            let _ = Command::new("gammastep").arg("-x").output();
+        }
+
         // GNOME
+        if binary_exists("gsettings") {
+            let _ = Command::new("gsettings")
+                .arg("set")
+                .arg("org.gnome.settings-daemon.plugins.color")
+                .arg("night-light-enabled")
+                .arg("false")
+                .output();
+        }
+
+        // Hyprland: if grayscale is active, preserve it; otherwise clear
+        if is_grayscale_active().ok().flatten().unwrap_or(false) {
+            let shader = ensure_shader("grayscale.frag", GRAYSCALE_SHADER)?;
+            let _ = set_hyprland_screen_shader(Some(&shader));
+        } else if is_hyprland_running() {
+            let _ = set_hyprland_screen_shader(None);
+        }
+
+        return Ok(());
+    }
+
+    // ENABLED:
+    // 1. If on Hyprland, prefer hyprsunset if installed, else native screen shader
+    if is_hyprland_running() {
+        if binary_exists("hyprsunset") {
+            let _ = Command::new("hyprsunset")
+                .arg("-t")
+                .arg(temperature.to_string())
+                .spawn();
+            return Ok(());
+        }
+
+        // Apply native Hyprland night light screen shader if grayscale is not active
+        if !is_grayscale_active().ok().flatten().unwrap_or(false) {
+            let shader = ensure_shader("night_light.frag", NIGHT_LIGHT_SHADER)?;
+            set_hyprland_screen_shader(Some(&shader))?;
+        }
+        return Ok(());
+    }
+
+    // 2. Generic Wayland: try wlsunset
+    if binary_exists("wlsunset") {
+        let spawn_res = Command::new("wlsunset")
+            .arg("-t")
+            .arg(temperature.to_string())
+            .arg("-T")
+            .arg("6500")
+            .arg("-S")
+            .arg("00:00")
+            .arg("-s")
+            .arg("00:00")
+            .spawn();
+        if spawn_res.is_ok() {
+            return Ok(());
+        }
+    }
+
+    // 3. Generic Wayland / X11: try gammastep
+    if binary_exists("gammastep") {
+        let spawn_res = Command::new("gammastep")
+            .arg("-O")
+            .arg(temperature.to_string())
+            .spawn();
+        if spawn_res.is_ok() {
+            return Ok(());
+        }
+    }
+
+    // 4. GNOME gsettings
+    if binary_exists("gsettings") {
         let _ = Command::new("gsettings")
             .arg("set")
             .arg("org.gnome.settings-daemon.plugins.color")
             .arg("night-light-enabled")
-            .arg("false")
+            .arg("true")
+            .output();
+        let _ = Command::new("gsettings")
+            .arg("set")
+            .arg("org.gnome.settings-daemon.plugins.color")
+            .arg("night-light-temperature")
+            .arg(temperature.to_string())
             .output();
         return Ok(());
     }
 
-    // GNOME
-    let _ = Command::new("gsettings")
-        .arg("set")
-        .arg("org.gnome.settings-daemon.plugins.color")
-        .arg("night-light-enabled")
-        .arg("true")
-        .output();
-    let _ = Command::new("gsettings")
-        .arg("set")
-        .arg("org.gnome.settings-daemon.plugins.color")
-        .arg("night-light-temperature")
-        .arg(temperature.to_string())
-        .output();
+    Err(anyhow!(
+        "No supported night light daemon or compositor found (install wlsunset, gammastep, or hyprsunset)"
+    ))
+}
 
-    // Try hyprsunset
-    let _ = Command::new("hyprctl").arg("hyprsunset").output();
-
-    if Command::new("which").arg("hyprsunset").output().is_ok() {
-        Command::new("hyprsunset")
-            .arg("-t")
-            .arg(temperature.to_string())
-            .spawn()?;
-        return Ok(());
+fn apply_grayscale(enabled: bool) -> Result<()> {
+    if !is_hyprland_running() {
+        return Err(anyhow!("Grayscale mode requires Hyprland compositor"));
     }
 
-    if Command::new("which").arg("wlsunset").output().is_ok() {
-        Command::new("wlsunset")
-            .arg("-t")
-            .arg(temperature.to_string())
-            .spawn()?;
-        return Ok(());
+    if enabled {
+        let shader = ensure_shader("grayscale.frag", GRAYSCALE_SHADER)?;
+        set_hyprland_screen_shader(Some(&shader))
+    } else {
+        // If night light is currently active, revert to night light shader; otherwise clear
+        if is_night_light_active().unwrap_or(false) {
+            let shader = ensure_shader("night_light.frag", NIGHT_LIGHT_SHADER)?;
+            set_hyprland_screen_shader(Some(&shader))
+        } else {
+            set_hyprland_screen_shader(None)
+        }
     }
-
-    Ok(())
 }

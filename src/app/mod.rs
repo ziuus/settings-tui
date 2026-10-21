@@ -66,6 +66,7 @@ pub enum AppEvent {
     UpdateCapabilities(Box<crate::platform::PlatformCapabilities>),
     UpdateBrightness(Option<u32>),
     UpdateNightLight(Option<bool>),
+    UpdateGrayscale(Option<bool>),
     UpdateFlightMode(Option<bool>),
     UpdateHotspot(Option<bool>),
     UpdateActiveConnection(Option<crate::backends::ActiveConnectionInfo>),
@@ -119,6 +120,7 @@ pub enum BackendCommand {
     SetHostname(String),
     CycleGtkTheme(bool), // true = next, false = prev
     ToggleNightLight(bool),
+    ToggleGrayscale(bool),
     CycleCursorTheme(bool),
     SetFontName(String),
     SetWallpaper(String),
@@ -170,6 +172,7 @@ pub struct App {
     pub monitors: Vec<crate::backends::Monitor>,
     pub display_brightness: Option<u32>,
     pub night_light_enabled: Option<bool>,
+    pub grayscale_enabled: Option<bool>,
     pub active_connection: Option<crate::backends::ActiveConnectionInfo>,
     pub appearance_info: Option<crate::backends::AppearanceInfo>,
     pub applications: Vec<crate::backends::AppEntry>,
@@ -247,6 +250,7 @@ impl App {
             monitors: vec![],
             display_brightness: None,
             night_light_enabled: None,
+            grayscale_enabled: None,
             active_connection: None,
             appearance_info: None,
             applications: vec![],
@@ -519,11 +523,63 @@ impl App {
             });
         }
 
-        let monitor_idx_offset = if self.display_brightness.is_some() {
+        let nl_offset = if self.display_brightness.is_some() {
             1
         } else {
             0
         };
+
+        if self.night_light_enabled.is_some() {
+            let nl_score = calc_score(
+                "Night Light (Blue Light Filter)",
+                "Display",
+                "Reduces blue light to help you sleep better",
+                "night light blue filter warmth temperature screen",
+                &q,
+            );
+            if nl_score > 0 {
+                self.search_results.push(SearchResult {
+                    title: "Night Light".to_string(),
+                    category: "Display".to_string(),
+                    description: "Blue light filter screen warmth".to_string(),
+                    target_item_idx: nl_offset,
+                    score: nl_score,
+                });
+            }
+        }
+
+        let gray_offset = nl_offset
+            + (if self.night_light_enabled.is_some() {
+                1
+            } else {
+                0
+            });
+
+        if self.grayscale_enabled.is_some() {
+            let gray_score = calc_score(
+                "Grayscale Mode",
+                "Display",
+                "Monochrome color filter for accessibility and focus",
+                "grayscale monochrome black white screen shader color filter",
+                &q,
+            );
+            if gray_score > 0 {
+                self.search_results.push(SearchResult {
+                    title: "Grayscale Mode".to_string(),
+                    category: "Display".to_string(),
+                    description: "Monochrome screen color filter".to_string(),
+                    target_item_idx: gray_offset,
+                    score: gray_score,
+                });
+            }
+        }
+
+        let monitor_idx_offset = gray_offset
+            + (if self.grayscale_enabled.is_some() {
+                1
+            } else {
+                0
+            });
 
         for (i, mon) in self.monitors.iter().enumerate() {
             let extra = format!("refresh rate resolution {}x{} hz", mon.width, mon.height);
@@ -542,7 +598,7 @@ impl App {
                         "Resolution & Refresh Rate ({}x{}@{:.0}Hz)",
                         mon.width, mon.height, mon.refresh_rate
                     ),
-                    target_item_idx: i + monitor_idx_offset,
+                    target_item_idx: i * 3 + monitor_idx_offset + 1,
                     score,
                 });
             }
@@ -910,15 +966,19 @@ impl App {
             }
             "Services" => self.services.len(),
             "Display" => {
-                let base = if self.display_brightness.is_some() {
+                let base = (if self.display_brightness.is_some() {
                     1
                 } else {
                     0
-                } + if self.night_light_enabled.is_some() {
+                }) + (if self.night_light_enabled.is_some() {
                     1
                 } else {
                     0
-                };
+                }) + (if self.grayscale_enabled.is_some() {
+                    1
+                } else {
+                    0
+                });
                 base + self.monitors.len() * 3
             }
             "Power" => {
@@ -1214,23 +1274,44 @@ impl App {
                 } else if self.focus == Focus::Content {
                     let vis = self.visible_categories();
                     if let Some(cat) = vis.get(self.selected_category) {
-                        if cat == "Display"
-                            && self.display_brightness.is_some()
-                            && self.selected_item == 0
-                        {
-                            if let Some(cur) = self.display_brightness {
-                                let step = if key
-                                    .modifiers
-                                    .contains(crossterm::event::KeyModifiers::SHIFT)
-                                {
-                                    5
-                                } else {
-                                    1
-                                };
-                                let new_val = cur.saturating_add(step).min(100);
-                                if let Some(tx) = &self.cmd_tx {
-                                    let _ =
-                                        tx.try_send(BackendCommand::SetDisplayBrightness(new_val));
+                        if cat == "Display" {
+                            let has_brightness = self.display_brightness.is_some();
+                            let nl_idx = if has_brightness { 1 } else { 0 };
+                            let has_nl = self.night_light_enabled.is_some();
+                            let gray_idx =
+                                (if has_brightness { 1 } else { 0 }) + (if has_nl { 1 } else { 0 });
+                            let has_gray = self.grayscale_enabled.is_some();
+
+                            if has_brightness && self.selected_item == 0 {
+                                if let Some(cur) = self.display_brightness {
+                                    let step = if key
+                                        .modifiers
+                                        .contains(crossterm::event::KeyModifiers::SHIFT)
+                                    {
+                                        5
+                                    } else {
+                                        1
+                                    };
+                                    let new_val = cur.saturating_add(step).min(100);
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ = tx.try_send(BackendCommand::SetDisplayBrightness(
+                                            new_val,
+                                        ));
+                                    }
+                                }
+                            } else if has_nl && self.selected_item == nl_idx {
+                                if let Some(enabled) = self.night_light_enabled {
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ =
+                                            tx.try_send(BackendCommand::ToggleNightLight(!enabled));
+                                    }
+                                }
+                            } else if has_gray && self.selected_item == gray_idx {
+                                if let Some(enabled) = self.grayscale_enabled {
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ =
+                                            tx.try_send(BackendCommand::ToggleGrayscale(!enabled));
+                                    }
                                 }
                             }
                         } else if cat == "Mouse & Touchpad"
@@ -1337,25 +1418,49 @@ impl App {
                     if let Some(cat) = vis.get(self.selected_category) {
                         if (key.code == KeyCode::Left || key.code == KeyCode::Char('h'))
                             && cat == "Display"
-                            && self.display_brightness.is_some()
-                            && self.selected_item == 0
                         {
-                            if let Some(cur) = self.display_brightness {
-                                let step = if key
-                                    .modifiers
-                                    .contains(crossterm::event::KeyModifiers::SHIFT)
-                                {
-                                    5
-                                } else {
-                                    1
-                                };
-                                let new_val = cur.saturating_sub(step);
-                                if let Some(tx) = &self.cmd_tx {
-                                    let _ =
-                                        tx.try_send(BackendCommand::SetDisplayBrightness(new_val));
+                            let has_brightness = self.display_brightness.is_some();
+                            let nl_idx = if has_brightness { 1 } else { 0 };
+                            let has_nl = self.night_light_enabled.is_some();
+                            let gray_idx =
+                                (if has_brightness { 1 } else { 0 }) + (if has_nl { 1 } else { 0 });
+                            let has_gray = self.grayscale_enabled.is_some();
+
+                            if has_brightness && self.selected_item == 0 {
+                                if let Some(cur) = self.display_brightness {
+                                    let step = if key
+                                        .modifiers
+                                        .contains(crossterm::event::KeyModifiers::SHIFT)
+                                    {
+                                        5
+                                    } else {
+                                        1
+                                    };
+                                    let new_val = cur.saturating_sub(step);
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ = tx.try_send(BackendCommand::SetDisplayBrightness(
+                                            new_val,
+                                        ));
+                                    }
                                 }
+                                return;
+                            } else if has_nl && self.selected_item == nl_idx {
+                                if let Some(enabled) = self.night_light_enabled {
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ =
+                                            tx.try_send(BackendCommand::ToggleNightLight(!enabled));
+                                    }
+                                }
+                                return;
+                            } else if has_gray && self.selected_item == gray_idx {
+                                if let Some(enabled) = self.grayscale_enabled {
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ =
+                                            tx.try_send(BackendCommand::ToggleGrayscale(!enabled));
+                                    }
+                                }
+                                return;
                             }
-                            return;
                         } else if (key.code == KeyCode::Left || key.code == KeyCode::Char('h'))
                             && cat == "Mouse & Touchpad"
                             && self.input_settings.is_some()
@@ -1642,11 +1747,22 @@ impl App {
                             let has_brightness = self.display_brightness.is_some();
                             let nl_idx = if has_brightness { 1 } else { 0 };
                             let has_nl = self.night_light_enabled.is_some();
+                            let gray_idx =
+                                (if has_brightness { 1 } else { 0 }) + (if has_nl { 1 } else { 0 });
+                            let has_gray = self.grayscale_enabled.is_some();
+
                             if has_nl && self.selected_item == nl_idx {
                                 if let Some(enabled) = self.night_light_enabled {
                                     if let Some(tx) = &self.cmd_tx {
                                         let _ =
                                             tx.try_send(BackendCommand::ToggleNightLight(!enabled));
+                                    }
+                                }
+                            } else if has_gray && self.selected_item == gray_idx {
+                                if let Some(enabled) = self.grayscale_enabled {
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ =
+                                            tx.try_send(BackendCommand::ToggleGrayscale(!enabled));
                                     }
                                 }
                             }
@@ -1979,6 +2095,9 @@ impl App {
                             let has_brightness = self.display_brightness.is_some();
                             let nl_idx = if has_brightness { 1 } else { 0 };
                             let has_nl = self.night_light_enabled.is_some();
+                            let gray_idx =
+                                (if has_brightness { 1 } else { 0 }) + (if has_nl { 1 } else { 0 });
+                            let has_gray = self.grayscale_enabled.is_some();
 
                             if has_brightness && self.selected_item == 0 {
                                 if let Some(cur) = self.display_brightness {
@@ -2008,9 +2127,17 @@ impl App {
                                             tx.try_send(BackendCommand::ToggleNightLight(!enabled));
                                     }
                                 }
+                            } else if has_gray && self.selected_item == gray_idx {
+                                if let Some(enabled) = self.grayscale_enabled {
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ =
+                                            tx.try_send(BackendCommand::ToggleGrayscale(!enabled));
+                                    }
+                                }
                             } else {
                                 let offset = (if has_brightness { 1 } else { 0 })
-                                    + (if has_nl { 1 } else { 0 });
+                                    + (if has_nl { 1 } else { 0 })
+                                    + (if has_gray { 1 } else { 0 });
                                 let sel_offset = self.selected_item.saturating_sub(offset);
                                 let mon_idx = sel_offset / 3;
                                 let is_mode = (sel_offset % 3) == 0;
@@ -3324,6 +3451,43 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 }
                             }
                         }
+                        BackendCommand::ToggleGrayscale(target) => {
+                            if let Some(disp) = &display_backend_for_cmd {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    disp.set_grayscale_enabled(target),
+                                    disp.is_grayscale_enabled(),
+                                    |g: &Option<bool>| *g == Some(target),
+                                    10,
+                                    100
+                                );
+
+                                if mutation_ok {
+                                    if verified {
+                                        let state_str = if target { "On" } else { "Off" };
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(format!(
+                                                "Grayscale {}",
+                                                state_str
+                                            )))
+                                            .await;
+                                    } else {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::Notification(
+                                                "Failed to verify Grayscale change".to_string(),
+                                            ))
+                                            .await;
+                                    }
+                                } else if let Some(err) = mutation_error {
+                                    let err_msg =
+                                        format!("Failed to set Grayscale: {}", err);
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+
+                                if let Ok(g) = final_state {
+                                    let _ = tx_cmd_resp.send(AppEvent::UpdateGrayscale(g)).await;
+                                }
+                            }
+                        }
                         BackendCommand::ToggleNTP(target) => {
                             let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                 sys_backend_for_cmd.set_ntp(target),
@@ -3826,6 +3990,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         if let Ok(nl) = disp.is_night_light_enabled().await {
                             let _ = tx_backend.send(AppEvent::UpdateNightLight(Some(nl))).await;
                         }
+                        if let Ok(gray) = disp.is_grayscale_enabled().await {
+                            let _ = tx_backend.send(AppEvent::UpdateGrayscale(gray)).await;
+                        }
                     }
                     if let Some(appr) = &appearance_backend {
                         if let Ok(info) = appr.get_info().await {
@@ -3899,6 +4066,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                 AppEvent::UpdateMonitors(monitors) => app_lock.monitors = monitors,
                 AppEvent::UpdateBrightness(b) => app_lock.display_brightness = b,
                 AppEvent::UpdateNightLight(nl) => app_lock.night_light_enabled = nl,
+                AppEvent::UpdateGrayscale(gray) => app_lock.grayscale_enabled = gray,
                 AppEvent::UpdateFlightMode(fm) => app_lock.flight_mode_enabled = fm,
                 AppEvent::UpdateHotspot(hs) => app_lock.hotspot_enabled = hs,
                 AppEvent::UpdateActiveConnection(conn) => app_lock.active_connection = conn,
@@ -4392,6 +4560,67 @@ mod tests {
         } else {
             panic!("Expected SetDisplayBrightness command on Shift+'+'");
         }
+    }
+
+    #[test]
+    fn test_night_light_and_grayscale_toggles() {
+        let mut app = App::new();
+        let disp_idx = app.categories.iter().position(|c| c == "Display").unwrap();
+        app.selected_category = disp_idx;
+        app.focus = Focus::Content;
+        app.display_brightness = Some(50);
+        app.night_light_enabled = Some(false);
+        app.grayscale_enabled = Some(false);
+
+        let (tx, mut rx) = mpsc::channel(10);
+        app.cmd_tx = Some(tx);
+
+        // Item 1: Night Light (index 1 when brightness is present)
+        app.selected_item = 1;
+        app.handle_key(press(KeyCode::Char(' ')));
+        if let Ok(BackendCommand::ToggleNightLight(enabled)) = rx.try_recv() {
+            assert!(enabled, "Space should toggle night light to on");
+        } else {
+            panic!("Expected ToggleNightLight command on Space");
+        }
+
+        app.handle_key(press(KeyCode::Right));
+        if let Ok(BackendCommand::ToggleNightLight(enabled)) = rx.try_recv() {
+            assert!(enabled, "Right arrow should toggle night light");
+        } else {
+            panic!("Expected ToggleNightLight command on Right arrow");
+        }
+
+        // Item 2: Grayscale Mode (index 2 when brightness and night light are present)
+        app.selected_item = 2;
+        app.handle_key(press(KeyCode::Char(' ')));
+        if let Ok(BackendCommand::ToggleGrayscale(enabled)) = rx.try_recv() {
+            assert!(enabled, "Space should toggle grayscale to on");
+        } else {
+            panic!("Expected ToggleGrayscale command on Space");
+        }
+
+        app.handle_key(press(KeyCode::Enter));
+        if let Ok(BackendCommand::ToggleGrayscale(enabled)) = rx.try_recv() {
+            assert!(enabled, "Enter should toggle grayscale to on");
+        } else {
+            panic!("Expected ToggleGrayscale command on Enter");
+        }
+
+        // Search for grayscale and night light
+        app.search_query = "grayscale".to_string();
+        app.update_search_results();
+        assert!(!app.search_results.is_empty());
+        assert_eq!(app.search_results[0].category, "Display");
+        assert_eq!(app.search_results[0].title, "Grayscale Mode");
+        assert_eq!(app.search_results[0].target_item_idx, 2);
+
+        app.search_query = "night light".to_string();
+        app.update_search_results();
+        assert!(!app.search_results.is_empty());
+        assert_eq!(app.search_results[0].category, "Display");
+        assert_eq!(app.search_results[0].title, "Night Light");
+        assert_eq!(app.search_results[0].target_item_idx, 1);
     }
 
     #[test]
