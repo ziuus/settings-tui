@@ -8,6 +8,10 @@ on:
       - 'v*'
   workflow_dispatch:
 
+concurrency:
+  group: publish-npm-${{ github.ref_name || github.ref }}
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -50,7 +54,13 @@ jobs:
           if npm view settings-tui@"$CURRENT_VER" version >/dev/null 2>&1; then
             echo "settings-tui@$CURRENT_VER is already published on npm. Skipping publish step."
           else
-            npx npm@latest publish --provenance --access public
+            npx npm@latest publish --provenance --access public || {
+              if npm view settings-tui@"$CURRENT_VER" version >/dev/null 2>&1; then
+                echo "settings-tui@$CURRENT_VER is already published on npm. Continuing."
+              else
+                exit 1
+              fi
+            }
           fi
 
       - name: Upload Release Tarball to GitHub Release
