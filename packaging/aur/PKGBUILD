@@ -11,7 +11,7 @@ provides=('settings-tui')
 conflicts=('settings-tui')
 install=settings-tui-bin.install
 source=("https://github.com/ziuus/settings-tui/releases/download/v${pkgver}/settings-tui-v${pkgver}-x86_64-unknown-linux-gnu.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('66b44a6340ec1fececff8cb946a10e91c810676ef8dfd4744c3f4974072afcf7')
 
 package() {
     install -Dm755 "${srcdir}/settings-tui" "${pkgdir}/usr/bin/settings-tui"

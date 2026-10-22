@@ -9,6 +9,6 @@ pkgbase = settings-tui-bin
 	provides = settings-tui
 	conflicts = settings-tui
 	source = https://github.com/ziuus/settings-tui/releases/download/v0.1.18/settings-tui-v0.1.18-x86_64-unknown-linux-gnu.tar.gz
-	sha256sums = SKIP
+	sha256sums = 66b44a6340ec1fececff8cb946a10e91c810676ef8dfd4744c3f4974072afcf7
 
 pkgname = settings-tui-bin
