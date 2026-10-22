@@ -10,7 +10,15 @@ impl WpctlBackend {
     pub fn new() -> Self {
         Self
     }
+}
 
+impl Default for WpctlBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WpctlBackend {
     async fn get_pw_dump(&self) -> Result<Value> {
         let output = Command::new("pw-dump").output()?;
         let stdout = String::from_utf8_lossy(&output.stdout);

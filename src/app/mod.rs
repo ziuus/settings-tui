@@ -267,7 +267,15 @@ impl App {
             search_selected_idx: 0,
         }
     }
+}
 
+impl Default for App {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl App {
     pub fn visible_categories(&self) -> Vec<String> {
         if self.search_query.is_empty() {
             self.categories.clone()

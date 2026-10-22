@@ -118,7 +118,15 @@ impl DesktopEntryBackend {
     pub fn new() -> Self {
         Self
     }
+}
 
+impl Default for DesktopEntryBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DesktopEntryBackend {
     pub fn parse_desktop_content(content: &str, file_name: &str) -> Option<AppEntry> {
         let mut name = String::new();
         let mut description = String::new();
