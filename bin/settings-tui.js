@@ -7,8 +7,12 @@ const fs = require('fs');
 const possiblePaths = [
   '/usr/bin/settings-tui',
   '/usr/local/bin/settings-tui',
+  '/usr/bin/settings',
+  '/usr/local/bin/settings',
   path.join(__dirname, 'settings-tui'),
-  path.join(__dirname, '..', 'target', 'release', 'settings-tui')
+  path.join(__dirname, 'settings'),
+  path.join(__dirname, '..', 'target', 'release', 'settings-tui'),
+  path.join(__dirname, '..', 'target', 'release', 'settings')
 ];
 
 let binPath = possiblePaths.find(p => fs.existsSync(p) && fs.statSync(p).isFile());

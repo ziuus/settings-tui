@@ -386,7 +386,7 @@ uniform sampler2D tex;
 void main() {
     vec4 pixColor = texture(tex, v_texcoord);
     float gray = dot(pixColor.rgb, vec3(0.299, 0.587, 0.114));
-    fragColor = vec4(vec3(gray), pixColor.a);
+    fragColor = vec4(vec3(gray), 1.0);
 }
 "#;
 
@@ -400,10 +400,8 @@ uniform sampler2D tex;
 
 void main() {
     vec4 pixColor = texture(tex, v_texcoord);
-    pixColor[0] = min(1.0, pixColor[0] * 1.0);
-    pixColor[1] = min(1.0, pixColor[1] * 0.88);
-    pixColor[2] = min(1.0, pixColor[2] * 0.70);
-    fragColor = pixColor;
+    vec3 col = pixColor.rgb * vec3(1.0, 0.88, 0.70);
+    fragColor = vec4(col, 1.0);
 }
 "#;
 
@@ -418,7 +416,7 @@ uniform sampler2D tex;
 void main() {
     vec4 pixColor = texture(tex, v_texcoord);
     float gray = dot(pixColor.rgb, vec3(0.299, 0.587, 0.114));
-    fragColor = vec4(gray * 1.0, gray * 0.88, gray * 0.70, pixColor.a);
+    fragColor = vec4(gray * 1.0, gray * 0.88, gray * 0.70, 1.0);
 }
 "#;
 
@@ -485,6 +483,11 @@ fn set_hyprland_screen_shader(shader_path: Option<&Path>) -> Result<()> {
     if let Ok(eval_out) = Command::new("hyprctl").arg("eval").arg(&lua_code).output() {
         let msg = String::from_utf8_lossy(&eval_out.stdout);
         if eval_out.status.success() && msg.trim() == "ok" {
+            // Force renderer reload to cleanly repaint all monitors without visual stutter or damage tracking ghosting
+            let _ = Command::new("hyprctl")
+                .arg("eval")
+                .arg("hl.dsp.force_renderer_reload()")
+                .output();
             return Ok(());
         }
     }
@@ -503,10 +506,14 @@ fn set_hyprland_screen_shader(shader_path: Option<&Path>) -> Result<()> {
 
     let msg = String::from_utf8_lossy(&kw_out.stdout);
     if kw_out.status.success() && !msg.contains("can't work with non-legacy parsers") {
+        let _ = Command::new("hyprctl")
+            .arg("reload")
+            .arg("config-only")
+            .output();
         return Ok(());
     }
 
-    Ok(())
+    Err(anyhow!("Failed to apply Hyprland screen shader"))
 }
 
 fn is_gnome_running() -> bool {

@@ -26,6 +26,7 @@ clean:
 install: build
 	install -d "$(DESTDIR)$(BINDIR)"
 	install -m 755 "$(TARGET)" "$(DESTDIR)$(BINDIR)/settings-tui"
+	ln -sf settings-tui "$(DESTDIR)$(BINDIR)/settings"
 	install -d "$(DESTDIR)$(APPDIR)"
 	install -m 644 extra/settings-tui.desktop "$(DESTDIR)$(APPDIR)/settings-tui.desktop"
 	install -d "$(DESTDIR)$(MANDIR)"
@@ -33,5 +34,6 @@ install: build
 
 uninstall:
 	rm -f "$(DESTDIR)$(BINDIR)/settings-tui"
+	rm -f "$(DESTDIR)$(BINDIR)/settings"
 	rm -f "$(DESTDIR)$(APPDIR)/settings-tui.desktop"
 	rm -f "$(DESTDIR)$(MANDIR)/settings-tui.1"

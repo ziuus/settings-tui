@@ -1,14 +1,15 @@
 pkgbase = settings-tui-bin
 	pkgdesc = A hyper-lightweight (<9MB, near 0% CPU) universal Linux Settings Center for your terminal
-	pkgver = 0.1.18
+	pkgver = 0.1.19
 	pkgrel = 1
 	url = https://github.com/ziuus/settings-tui
 	install = settings-tui-bin.install
 	arch = x86_64
 	license = MIT
 	provides = settings-tui
+	provides = settings
 	conflicts = settings-tui
-	source = https://github.com/ziuus/settings-tui/releases/download/v0.1.18/settings-tui-v0.1.18-x86_64-unknown-linux-gnu.tar.gz
-	sha256sums = 66b44a6340ec1fececff8cb946a10e91c810676ef8dfd4744c3f4974072afcf7
+	source = https://github.com/ziuus/settings-tui/releases/download/v0.1.19/settings-tui-v0.1.19-x86_64-unknown-linux-gnu.tar.gz
+	sha256sums = d7e25ad487f85ef4c45c3868b5c3807d5b7dc341de782518c528a03c0f4a7b8d
 
 pkgname = settings-tui-bin
