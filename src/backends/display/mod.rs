@@ -2,7 +2,8 @@ use super::{DisplayBackend, Monitor};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 pub struct HyprlandBackend;
 
@@ -374,16 +375,175 @@ fn is_process_running(proc: &str) -> bool {
     false
 }
 
+const GRAYSCALE_SHADER: &str = r#"#version 300 es
+precision mediump float;
+
+in vec2 v_texcoord;
+layout(location = 0) out vec4 fragColor;
+
+uniform sampler2D tex;
+
+void main() {
+    vec4 pixColor = texture(tex, v_texcoord);
+    float gray = dot(pixColor.rgb, vec3(0.299, 0.587, 0.114));
+    fragColor = vec4(vec3(gray), pixColor.a);
+}
+"#;
+
+const NIGHT_LIGHT_SHADER: &str = r#"#version 300 es
+precision mediump float;
+
+in vec2 v_texcoord;
+layout(location = 0) out vec4 fragColor;
+
+uniform sampler2D tex;
+
+void main() {
+    vec4 pixColor = texture(tex, v_texcoord);
+    pixColor[0] = min(1.0, pixColor[0] * 1.0);
+    pixColor[1] = min(1.0, pixColor[1] * 0.88);
+    pixColor[2] = min(1.0, pixColor[2] * 0.70);
+    fragColor = pixColor;
+}
+"#;
+
+const GRAYSCALE_NIGHT_LIGHT_SHADER: &str = r#"#version 300 es
+precision mediump float;
+
+in vec2 v_texcoord;
+layout(location = 0) out vec4 fragColor;
+
+uniform sampler2D tex;
+
+void main() {
+    vec4 pixColor = texture(tex, v_texcoord);
+    float gray = dot(pixColor.rgb, vec3(0.299, 0.587, 0.114));
+    fragColor = vec4(gray * 1.0, gray * 0.88, gray * 0.70, pixColor.a);
+}
+"#;
+
+fn ensure_shader(filename: &str, content: &str) -> Result<PathBuf> {
+    let base_dir = if let Ok(cfg) = std::env::var("XDG_CONFIG_HOME") {
+        if !cfg.is_empty() {
+            PathBuf::from(cfg).join("settings-tui/shaders")
+        } else {
+            PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
+                .join(".config/settings-tui/shaders")
+        }
+    } else if let Ok(home) = std::env::var("HOME") {
+        PathBuf::from(home).join(".config/settings-tui/shaders")
+    } else {
+        std::env::temp_dir().join("settings-tui-shaders")
+    };
+
+    std::fs::create_dir_all(&base_dir)?;
+    let file_path = base_dir.join(filename);
+    if !file_path.exists() || std::fs::read_to_string(&file_path).unwrap_or_default() != content {
+        std::fs::write(&file_path, content)?;
+    }
+    Ok(file_path)
+}
+
+fn is_hyprland_running() -> bool {
+    std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some()
+        || Command::new("hyprctl")
+            .arg("version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+}
+
+fn get_hyprland_screen_shader() -> Option<String> {
+    if let Ok(output) = Command::new("hyprctl")
+        .arg("getoption")
+        .arg("decoration:screen_shader")
+        .arg("-j")
+        .output()
+    {
+        if output.status.success() {
+            if let Ok(val) = serde_json::from_slice::<Value>(&output.stdout) {
+                if let Some(s) = val.get("str").and_then(|v| v.as_str()) {
+                    let trimmed = s.trim();
+                    if !trimmed.is_empty() && trimmed != "[[EMPTY]]" {
+                        return Some(trimmed.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn set_hyprland_screen_shader(shader_path: Option<&Path>) -> Result<()> {
+    let path_str = shader_path.and_then(|p| p.to_str()).unwrap_or("");
+
+    // 1. Try modern Hyprland Lua eval (zero config error side effects)
+    let lua_code = format!(
+        "hl.config({{ decoration = {{ screen_shader = '{}' }} }})",
+        path_str
+    );
+    if let Ok(eval_out) = Command::new("hyprctl").arg("eval").arg(&lua_code).output() {
+        let msg = String::from_utf8_lossy(&eval_out.stdout);
+        if eval_out.status.success() && msg.trim() == "ok" {
+            return Ok(());
+        }
+    }
+
+    // 2. Fallback to legacy Hyprland keyword
+    let legacy_val = if path_str.is_empty() {
+        "[[EMPTY]]"
+    } else {
+        path_str
+    };
+    let kw_out = Command::new("hyprctl")
+        .arg("keyword")
+        .arg("decoration:screen_shader")
+        .arg(legacy_val)
+        .output()?;
+
+    let msg = String::from_utf8_lossy(&kw_out.stdout);
+    if kw_out.status.success() && !msg.contains("can't work with non-legacy parsers") {
+        return Ok(());
+    }
+
+    Ok(())
+}
+
+fn is_gnome_running() -> bool {
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP")
+        .or_else(|_| std::env::var("DESKTOP_SESSION"))
+        .unwrap_or_default()
+        .to_lowercase();
+    desktop.contains("gnome")
+}
+
+fn is_kde_running() -> bool {
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP")
+        .or_else(|_| std::env::var("DESKTOP_SESSION"))
+        .unwrap_or_default()
+        .to_lowercase();
+    desktop.contains("kde") || desktop.contains("plasma")
+}
+
 fn is_night_light_active() -> Result<bool> {
-    // 1. Check universal Wayland/X11 daemons
+    // 1. Hyprland screen_shader
+    if is_hyprland_running() {
+        if let Some(shader) = get_hyprland_screen_shader() {
+            if shader.contains("night_light") {
+                return Ok(true);
+            }
+        }
+    }
+
+    // 2. Check universal Wayland/X11 daemons
     for proc in &["wlsunset", "gammastep", "hyprsunset", "redshift"] {
         if is_process_running(proc) {
             return Ok(true);
         }
     }
 
-    // 2. Check GNOME gsettings
-    if binary_exists("gsettings") {
+    // 3. Check GNOME gsettings (only when GNOME session is active)
+    if is_gnome_running() && binary_exists("gsettings") {
         if let Ok(output) = Command::new("gsettings")
             .args([
                 "get",
@@ -401,8 +561,8 @@ fn is_night_light_active() -> Result<bool> {
         }
     }
 
-    // 3. Check KDE Plasma via qdbus
-    if binary_exists("qdbus") {
+    // 4. Check KDE Plasma via qdbus (only when KDE session is active)
+    if is_kde_running() && binary_exists("qdbus") {
         if let Ok(output) = Command::new("qdbus")
             .args([
                 "org.kde.KWin.ColorCorrect",
@@ -424,6 +584,23 @@ fn is_night_light_active() -> Result<bool> {
 }
 
 fn apply_night_light(enabled: bool, temperature: u32) -> Result<()> {
+    if is_hyprland_running() {
+        let gray = is_grayscale_active().ok().flatten().unwrap_or(false);
+        if enabled {
+            let shader = if gray {
+                ensure_shader("grayscale_night_light.frag", GRAYSCALE_NIGHT_LIGHT_SHADER)?
+            } else {
+                ensure_shader("night_light.frag", NIGHT_LIGHT_SHADER)?
+            };
+            return set_hyprland_screen_shader(Some(&shader));
+        } else if gray {
+            let shader = ensure_shader("grayscale.frag", GRAYSCALE_SHADER)?;
+            return set_hyprland_screen_shader(Some(&shader));
+        } else {
+            return set_hyprland_screen_shader(None);
+        }
+    }
+
     if !enabled {
         // Kill background daemons
         for proc in &["wlsunset", "gammastep", "hyprsunset", "redshift"] {
@@ -433,7 +610,7 @@ fn apply_night_light(enabled: bool, temperature: u32) -> Result<()> {
         }
 
         // GNOME
-        if binary_exists("gsettings") {
+        if is_gnome_running() && binary_exists("gsettings") {
             let _ = Command::new("gsettings")
                 .args([
                     "set",
@@ -445,7 +622,7 @@ fn apply_night_light(enabled: bool, temperature: u32) -> Result<()> {
         }
 
         // KDE
-        if binary_exists("qdbus") {
+        if is_kde_running() && binary_exists("qdbus") {
             let _ = Command::new("qdbus")
                 .args([
                     "org.kde.KWin.ColorCorrect",
@@ -459,59 +636,9 @@ fn apply_night_light(enabled: bool, temperature: u32) -> Result<()> {
         return Ok(());
     }
 
-    // ENABLED:
-    // 1. Wayland standard: wlsunset (wlroots, Sway, Hyprland, Wayfire, River, labwc)
-    if binary_exists("wlsunset") {
-        for proc in &["wlsunset", "gammastep", "hyprsunset"] {
-            if is_process_running(proc) {
-                let _ = Command::new("pkill").arg("-x").arg(proc).output();
-            }
-        }
-        let res = Command::new("wlsunset")
-            .arg("-t")
-            .arg(temperature.to_string())
-            .arg("-T")
-            .arg("6500")
-            .arg("-S")
-            .arg("00:00")
-            .arg("-s")
-            .arg("00:00")
-            .spawn();
-        if res.is_ok() {
-            return Ok(());
-        }
-    }
-
-    // 2. Wayland / X11 universal: gammastep
-    if binary_exists("gammastep") {
-        for proc in &["wlsunset", "gammastep", "hyprsunset", "redshift"] {
-            if is_process_running(proc) {
-                let _ = Command::new("pkill").arg("-x").arg(proc).output();
-            }
-        }
-        let res = Command::new("gammastep")
-            .arg("-O")
-            .arg(temperature.to_string())
-            .spawn();
-        if res.is_ok() {
-            return Ok(());
-        }
-    }
-
-    // 3. Optional Hyprland daemon: hyprsunset (if installed)
-    if binary_exists("hyprsunset") {
-        let _ = Command::new("pkill").arg("-x").arg("hyprsunset").output();
-        let res = Command::new("hyprsunset")
-            .arg("-t")
-            .arg(temperature.to_string())
-            .spawn();
-        if res.is_ok() {
-            return Ok(());
-        }
-    }
-
-    // 4. GNOME gsettings
-    if binary_exists("gsettings") {
+    // ENABLED (non-Hyprland environments):
+    // 1. GNOME gsettings
+    if is_gnome_running() && binary_exists("gsettings") {
         let status = Command::new("gsettings")
             .args([
                 "set",
@@ -535,8 +662,8 @@ fn apply_night_light(enabled: bool, temperature: u32) -> Result<()> {
         }
     }
 
-    // 5. KDE Plasma via qdbus
-    if binary_exists("qdbus") {
+    // 2. KDE Plasma via qdbus
+    if is_kde_running() && binary_exists("qdbus") {
         let status = Command::new("qdbus")
             .args([
                 "org.kde.KWin.ColorCorrect",
@@ -552,12 +679,59 @@ fn apply_night_light(enabled: bool, temperature: u32) -> Result<()> {
         }
     }
 
-    // 6. X11 standard: redshift
+    // 3. Generic Wayland: wlsunset (spawned with null stdio to detach)
+    if binary_exists("wlsunset") {
+        for proc in &["wlsunset", "gammastep"] {
+            if is_process_running(proc) {
+                let _ = Command::new("pkill").arg("-x").arg(proc).output();
+            }
+        }
+        let res = Command::new("wlsunset")
+            .arg("-t")
+            .arg(temperature.to_string())
+            .arg("-T")
+            .arg("6500")
+            .arg("-S")
+            .arg("00:00")
+            .arg("-s")
+            .arg("00:00")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        if res.is_ok() {
+            return Ok(());
+        }
+    }
+
+    // 4. Generic Wayland / X11: gammastep
+    if binary_exists("gammastep") {
+        for proc in &["wlsunset", "gammastep", "redshift"] {
+            if is_process_running(proc) {
+                let _ = Command::new("pkill").arg("-x").arg(proc).output();
+            }
+        }
+        let res = Command::new("gammastep")
+            .arg("-O")
+            .arg(temperature.to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        if res.is_ok() {
+            return Ok(());
+        }
+    }
+
+    // 5. X11 standard: redshift
     if binary_exists("redshift") {
         let _ = Command::new("pkill").arg("-x").arg("redshift").output();
         let res = Command::new("redshift")
             .arg("-O")
             .arg(temperature.to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn();
         if res.is_ok() {
             return Ok(());
@@ -570,8 +744,18 @@ fn apply_night_light(enabled: bool, temperature: u32) -> Result<()> {
 }
 
 fn is_grayscale_active() -> Result<Option<bool>> {
-    // 1. GNOME Desktop
-    if binary_exists("gsettings") {
+    // 1. Hyprland screen_shader
+    if is_hyprland_running() {
+        if let Some(shader) = get_hyprland_screen_shader() {
+            if shader.contains("grayscale") {
+                return Ok(Some(true));
+            }
+        }
+        return Ok(Some(false));
+    }
+
+    // 2. GNOME Desktop (only when GNOME session is active)
+    if is_gnome_running() && binary_exists("gsettings") {
         if let Ok(output) = Command::new("gsettings")
             .args([
                 "get",
@@ -587,10 +771,11 @@ fn is_grayscale_active() -> Result<Option<bool>> {
                 }
             }
         }
+        return Ok(Some(false));
     }
 
-    // 2. KDE Plasma via qdbus
-    if binary_exists("qdbus") {
+    // 3. KDE Plasma via qdbus (only when KDE session is active)
+    if is_kde_running() && binary_exists("qdbus") {
         if let Ok(output) = Command::new("qdbus")
             .args(["org.kde.KWin", "/Effects", "isEffectLoaded", "grayscale"])
             .output()
@@ -600,6 +785,7 @@ fn is_grayscale_active() -> Result<Option<bool>> {
                 return Ok(Some(res == "true"));
             }
         }
+        return Ok(Some(false));
     }
 
     // Unsupported on current compositor/desktop environment
@@ -607,8 +793,25 @@ fn is_grayscale_active() -> Result<Option<bool>> {
 }
 
 fn apply_grayscale(enabled: bool) -> Result<()> {
-    // 1. GNOME Desktop
-    if binary_exists("gsettings") {
+    if is_hyprland_running() {
+        let nl = is_night_light_active().unwrap_or(false);
+        if enabled {
+            let shader = if nl {
+                ensure_shader("grayscale_night_light.frag", GRAYSCALE_NIGHT_LIGHT_SHADER)?
+            } else {
+                ensure_shader("grayscale.frag", GRAYSCALE_SHADER)?
+            };
+            return set_hyprland_screen_shader(Some(&shader));
+        } else if nl {
+            let shader = ensure_shader("night_light.frag", NIGHT_LIGHT_SHADER)?;
+            return set_hyprland_screen_shader(Some(&shader));
+        } else {
+            return set_hyprland_screen_shader(None);
+        }
+    }
+
+    // GNOME Desktop
+    if is_gnome_running() && binary_exists("gsettings") {
         let sat = if enabled { "0.0" } else { "1.0" };
         let status = Command::new("gsettings")
             .args([
@@ -625,8 +828,8 @@ fn apply_grayscale(enabled: bool) -> Result<()> {
         }
     }
 
-    // 2. KDE Plasma via qdbus
-    if binary_exists("qdbus") {
+    // KDE Plasma via qdbus
+    if is_kde_running() && binary_exists("qdbus") {
         let method = if enabled {
             "loadEffect"
         } else {
@@ -643,6 +846,6 @@ fn apply_grayscale(enabled: bool) -> Result<()> {
     }
 
     Err(anyhow!(
-        "Grayscale mode requires a desktop environment with accessibility color filter support (GNOME or KDE Plasma)"
+        "Grayscale mode requires a desktop environment with accessibility color filter support (GNOME, KDE Plasma, or Hyprland)"
     ))
 }
