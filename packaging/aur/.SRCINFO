@@ -1,6 +1,6 @@
 pkgbase = settings-tui-bin
 	pkgdesc = A hyper-lightweight (<9MB, near 0% CPU) universal Linux Settings Center for your terminal
-	pkgver = 0.1.20
+	pkgver = 0.1.21
 	pkgrel = 1
 	url = https://github.com/ziuus/settings-tui
 	install = settings-tui-bin.install
@@ -9,7 +9,7 @@ pkgbase = settings-tui-bin
 	provides = settings-tui
 	provides = settings
 	conflicts = settings-tui
-	source = https://github.com/ziuus/settings-tui/releases/download/v0.1.20/settings-tui-v0.1.20-x86_64-unknown-linux-gnu.tar.gz
-	sha256sums = 01f830b55e409db4c0e3293214ac6b135ff8958a918527351aa67cc87eaa36e3
+	source = https://github.com/ziuus/settings-tui/releases/download/v0.1.21/settings-tui-v0.1.21-x86_64-unknown-linux-gnu.tar.gz
+	sha256sums = 99742965b8b2009244ce8f021af1a0e5154d3cd844d18738222e06c5984c00a5
 
 pkgname = settings-tui-bin
