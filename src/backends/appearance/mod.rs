@@ -1,6 +1,7 @@
 use super::{AppearanceBackend, AppearanceInfo};
 use anyhow::Result;
 use async_trait::async_trait;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub struct GsettingsBackend;
@@ -55,6 +56,282 @@ impl GsettingsBackend {
         }
         themes.sort();
         themes
+    }
+
+    fn get_home_dir() -> PathBuf {
+        if let Ok(home) = std::env::var("HOME") {
+            PathBuf::from(home)
+        } else {
+            PathBuf::from(".")
+        }
+    }
+
+    fn sync_terminals(is_dark: bool) {
+        let home = Self::get_home_dir();
+
+        // 1. Foot Terminal
+        let foot_dir = home.join(".config/foot");
+        let foot_ini = foot_dir.join("foot.ini");
+        if foot_dir.exists() || foot_ini.exists() {
+            let _ = std::fs::create_dir_all(&foot_dir);
+            let theme_ini = foot_dir.join("theme.ini");
+
+            let theme_path = if is_dark {
+                if Path::new("/usr/share/foot/themes/catppuccin-mocha").exists() {
+                    Some("/usr/share/foot/themes/catppuccin-mocha")
+                } else if Path::new("/usr/share/foot/themes/gruvbox-dark").exists() {
+                    Some("/usr/share/foot/themes/gruvbox-dark")
+                } else {
+                    None
+                }
+            } else if Path::new("/usr/share/foot/themes/catppuccin-latte").exists() {
+                Some("/usr/share/foot/themes/catppuccin-latte")
+            } else if Path::new("/usr/share/foot/themes/gruvbox-light").exists() {
+                Some("/usr/share/foot/themes/gruvbox-light")
+            } else {
+                None
+            };
+
+            let theme_content = if let Some(path) = theme_path {
+                format!("include={}\n", path)
+            } else if is_dark {
+                "[colors-dark]\nbackground=1e1e2e\nforeground=cdd6f4\n".to_string()
+            } else {
+                "[colors-light]\nbackground=eff1f5\nforeground=4c4f69\n".to_string()
+            };
+
+            let _ = std::fs::write(&theme_ini, theme_content);
+
+            // Ensure foot.ini includes theme.ini
+            if foot_ini.exists() {
+                if let Ok(content) = std::fs::read_to_string(&foot_ini) {
+                    if !content.contains("theme.ini") {
+                        let new_content = format!("include=~/.config/foot/theme.ini\n{}", content);
+                        let _ = std::fs::write(&foot_ini, new_content);
+                    }
+                }
+            } else {
+                let _ = std::fs::write(&foot_ini, "include=~/.config/foot/theme.ini\n");
+            }
+
+            // Signal foot to switch theme live
+            // SIGUSR1 = switch to dark, SIGUSR2 = switch to light
+            let sig = if is_dark { "-SIGUSR1" } else { "-SIGUSR2" };
+            let _ = Command::new("pkill").arg(sig).arg("foot").output();
+        }
+
+        // 2. Kitty Terminal
+        let kitty_dir = home.join(".config/kitty");
+        if kitty_dir.exists() {
+            let theme_conf = kitty_dir.join("theme.conf");
+            let kitty_theme = if is_dark {
+                // Catppuccin Mocha
+                r#"# Catppuccin Mocha (Dark)
+foreground              #CDD6F4
+background              #1E1E2E
+selection_foreground    #1E1E2E
+selection_background    #F5E0DC
+cursor                  #F5E0DC
+cursor_text_color       #1E1E2E
+url_color               #B4BEFE
+color0 #45475A
+color8 #585B70
+color1 #F38BA8
+color9 #F38BA8
+color2 #A6E3A1
+color10 #A6E3A1
+color3 #F9E2AF
+color11 #F9E2AF
+color4 #89B4FA
+color12 #89B4FA
+color5 #F5C2E7
+color13 #F5C2E7
+color6 #94E2D5
+color14 #94E2D5
+color7 #BAC2DE
+color15 #A6ADC8
+"#
+            } else {
+                // Catppuccin Latte
+                r#"# Catppuccin Latte (Light)
+foreground              #4C4F69
+background              #EFF1F5
+selection_foreground    #4C4F69
+selection_background    #CC0000
+cursor                  #DC8A78
+cursor_text_color       #EFF1F5
+url_color               #1E66F5
+color0 #5C5F77
+color8 #6C6F85
+color1 #D20F39
+color9 #D20F39
+color2 #40A02B
+color10 #40A02B
+color3 #DF8E1D
+color11 #DF8E1D
+color4 #1E66F5
+color12 #1E66F5
+color5 #EA76CB
+color13 #EA76CB
+color6 #179299
+color14 #179299
+color7 #ACB0BE
+color15 #BCC0CC
+"#
+            };
+
+            let _ = std::fs::write(&theme_conf, kitty_theme);
+
+            // Signal kitty processes to live-reload configuration
+            let _ = Command::new("pkill").arg("-SIGUSR1").arg("kitty").output();
+        }
+
+        // 3. Alacritty
+        let alacritty_dir = home.join(".config/alacritty");
+        let alacritty_toml = alacritty_dir.join("alacritty.toml");
+        if alacritty_toml.exists() {
+            if let Ok(content) = std::fs::read_to_string(&alacritty_toml) {
+                let target_mode = if is_dark { "dark" } else { "light" };
+                let old_mode = if is_dark { "light" } else { "dark" };
+                if content.contains(&format!("{}.toml", old_mode)) {
+                    let updated = content.replace(
+                        &format!("{}.toml", old_mode),
+                        &format!("{}.toml", target_mode),
+                    );
+                    let _ = std::fs::write(&alacritty_toml, updated);
+                }
+            }
+        }
+
+        // 4. Ghostty
+        let ghostty_config = home.join(".config/ghostty/config");
+        if ghostty_config.exists() {
+            if let Ok(content) = std::fs::read_to_string(&ghostty_config) {
+                let mut lines = Vec::new();
+                let mut replaced = false;
+                for line in content.lines() {
+                    if line.trim_start().starts_with("theme =") {
+                        let new_theme = if is_dark {
+                            "catppuccin-mocha"
+                        } else {
+                            "catppuccin-latte"
+                        };
+                        lines.push(format!("theme = {}", new_theme));
+                        replaced = true;
+                    } else {
+                        lines.push(line.to_string());
+                    }
+                }
+                if !replaced {
+                    let new_theme = if is_dark {
+                        "catppuccin-mocha"
+                    } else {
+                        "catppuccin-latte"
+                    };
+                    lines.push(format!("theme = {}", new_theme));
+                }
+                let _ = std::fs::write(&ghostty_config, lines.join("\n") + "\n");
+            }
+        }
+    }
+
+    fn sync_gtk_files(is_dark: bool) {
+        let home = Self::get_home_dir();
+        let prefer_dark_val = if is_dark { "1" } else { "0" };
+
+        for dir_name in &["gtk-3.0", "gtk-4.0"] {
+            let gtk_dir = home.join(".config").join(dir_name);
+            let _ = std::fs::create_dir_all(&gtk_dir);
+            let ini_path = gtk_dir.join("settings.ini");
+
+            let mut lines: Vec<String> = if ini_path.exists() {
+                std::fs::read_to_string(&ini_path)
+                    .unwrap_or_default()
+                    .lines()
+                    .map(|s| s.to_string())
+                    .collect()
+            } else {
+                vec!["[Settings]".to_string()]
+            };
+
+            let mut has_prefer_dark = false;
+            for line in lines.iter_mut() {
+                if line
+                    .trim_start()
+                    .starts_with("gtk-application-prefer-dark-theme")
+                {
+                    *line = format!("gtk-application-prefer-dark-theme={}", prefer_dark_val);
+                    has_prefer_dark = true;
+                }
+            }
+
+            if !has_prefer_dark {
+                if let Some(pos) = lines.iter().position(|l| l.trim() == "[Settings]") {
+                    lines.insert(
+                        pos + 1,
+                        format!("gtk-application-prefer-dark-theme={}", prefer_dark_val),
+                    );
+                } else {
+                    lines.push("[Settings]".to_string());
+                    lines.push(format!(
+                        "gtk-application-prefer-dark-theme={}",
+                        prefer_dark_val
+                    ));
+                }
+            }
+
+            let _ = std::fs::write(&ini_path, lines.join("\n") + "\n");
+        }
+    }
+
+    fn sync_qt_and_kde(is_dark: bool) {
+        let home = Self::get_home_dir();
+        let kdeglobals = home.join(".config/kdeglobals");
+        let color_scheme = if is_dark { "BreezeDark" } else { "BreezeLight" };
+
+        if kdeglobals.exists() {
+            if let Ok(content) = std::fs::read_to_string(&kdeglobals) {
+                let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+                let mut in_general = false;
+                let mut has_color_scheme = false;
+
+                for line in lines.iter_mut() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                        in_general = trimmed == "[General]";
+                    } else if in_general && trimmed.starts_with("ColorScheme=") {
+                        *line = format!("ColorScheme={}", color_scheme);
+                        has_color_scheme = true;
+                    }
+                }
+
+                if !has_color_scheme {
+                    if let Some(pos) = lines.iter().position(|l| l.trim() == "[General]") {
+                        lines.insert(pos + 1, format!("ColorScheme={}", color_scheme));
+                    } else {
+                        lines.push("[General]".to_string());
+                        lines.push(format!("ColorScheme={}", color_scheme));
+                    }
+                }
+
+                let _ = std::fs::write(&kdeglobals, lines.join("\n") + "\n");
+            }
+        }
+
+        // Run kwriteconfig6 / kwriteconfig5 if available
+        for bin in &["kwriteconfig6", "kwriteconfig5"] {
+            let _ = Command::new(bin)
+                .args([
+                    "--file",
+                    "kdeglobals",
+                    "--group",
+                    "General",
+                    "--key",
+                    "ColorScheme",
+                    color_scheme,
+                ])
+                .output();
+        }
     }
 }
 
@@ -119,6 +396,9 @@ impl AppearanceBackend for GsettingsBackend {
     }
 
     async fn set_color_scheme(&self, scheme: &str) -> Result<()> {
+        let is_dark = scheme.contains("dark");
+
+        // 1. Broadcast to GNOME / XDG Desktop Portal / Web Browsers / Electron
         let output = Command::new("gsettings")
             .arg("set")
             .arg("org.gnome.desktop.interface")
@@ -126,17 +406,43 @@ impl AppearanceBackend for GsettingsBackend {
             .arg(scheme)
             .output()?;
 
-        if output.status.success() {
-            Ok(())
-        } else {
+        if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let msg = stderr
                 .lines()
                 .next()
                 .unwrap_or("Failed to set color scheme")
                 .trim();
-            Err(anyhow::anyhow!("{}", msg))
+            return Err(anyhow::anyhow!("{}", msg));
         }
+
+        // 2. Automatically sync matching GTK theme variant if currently using Adwaita
+        let current_theme = Self::get_key("org.gnome.desktop.interface", "gtk-theme");
+        if is_dark && current_theme == "Adwaita" {
+            let _ = Command::new("gsettings")
+                .args([
+                    "set",
+                    "org.gnome.desktop.interface",
+                    "gtk-theme",
+                    "Adwaita-dark",
+                ])
+                .output();
+        } else if !is_dark && current_theme == "Adwaita-dark" {
+            let _ = Command::new("gsettings")
+                .args(["set", "org.gnome.desktop.interface", "gtk-theme", "Adwaita"])
+                .output();
+        }
+
+        // 3. Sync GTK 3 & GTK 4 settings.ini (ensures legacy/file-based GTK apps switch immediately)
+        Self::sync_gtk_files(is_dark);
+
+        // 4. Sync Qt & KDE Plasma configuration
+        Self::sync_qt_and_kde(is_dark);
+
+        // 5. Sync Terminal Emulators (Foot, Kitty, Alacritty, Ghostty) with live signal reload
+        Self::sync_terminals(is_dark);
+
+        Ok(())
     }
 
     async fn set_gtk_theme(&self, theme: &str) -> Result<()> {
