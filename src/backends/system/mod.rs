@@ -2,7 +2,7 @@ use super::{SystemBackend, SystemDiskInfo, SystemInfo};
 use crate::dbus::systemd::{HostnameManagerProxy, LogindManagerProxy, TimedateManagerProxy};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use sysinfo::{Disks, System};
+use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, RefreshKind, System};
 use zbus::Connection;
 
 pub struct RealSystemBackend {
@@ -46,8 +46,11 @@ async fn check_updates() -> Option<usize> {
 
 impl RealSystemBackend {
     pub async fn new() -> Self {
-        let mut sys = System::new_all();
-        sys.refresh_all();
+        let sys = System::new_with_specifics(
+            RefreshKind::new()
+                .with_memory(MemoryRefreshKind::everything())
+                .with_cpu(CpuRefreshKind::everything()),
+        );
         let connection = Connection::system().await.ok();
         let updates_cache = std::sync::Arc::new(std::sync::Mutex::new(None));
         let cache_clone = updates_cache.clone();
@@ -66,8 +69,11 @@ impl RealSystemBackend {
 
     #[cfg(test)]
     pub fn new_with_connection(connection: Option<Connection>) -> Self {
-        let mut sys = System::new_all();
-        sys.refresh_all();
+        let sys = System::new_with_specifics(
+            RefreshKind::new()
+                .with_memory(MemoryRefreshKind::everything())
+                .with_cpu(CpuRefreshKind::everything()),
+        );
         Self {
             sys: std::sync::Mutex::new(sys),
             connection,

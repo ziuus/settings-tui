@@ -2306,6 +2306,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         initial_app.update_search_results();
     }
 
+    let (cmd_tx, mut cmd_rx) = mpsc::channel::<BackendCommand>(10);
+    initial_app.cmd_tx = Some(cmd_tx);
+
+    // Draw Frame 0 immediately: instant visual feedback with zero startup lag (< 5ms)
+    terminal.draw(|f| ui::draw(f, &mut initial_app))?;
+
     let app = Arc::new(Mutex::new(initial_app));
     let app_clone_sponsor = app.clone();
     let api_url = cfg
@@ -2389,81 +2395,53 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         }
     });
 
-    // Backend fetching task
+    // Backend fetching & command execution task (runs asynchronously without blocking Frame 0)
     let tx_backend = tx.clone();
-    let sys_backend = RealSystemBackend::new().await;
-
-    let net_backend = crate::backends::network::NetworkManagerBackend::new()
-        .await
-        .ok();
-    let bt_backend = crate::backends::bluetooth::BlueZBackend::new().await.ok();
-    let power_backend = crate::backends::power::UPowerBackend::new().await.ok();
-    let audio_backend = crate::backends::audio::WpctlBackend::new();
-    let services_backend = crate::backends::systemd::SystemdBackend::new().await.ok();
-
-    let display_backend: Option<Box<dyn DisplayBackend>> = {
-        let is_hyprland = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok();
-        let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
-        if is_hyprland && session_type == "wayland" {
-            crate::backends::display::HyprlandBackend::new()
-                .ok()
-                .map(|b| Box::new(b) as Box<dyn DisplayBackend>)
-        } else {
-            Some(
-                Box::new(crate::backends::display::GenericDisplayBackend::new())
-                    as Box<dyn DisplayBackend>,
-            )
-        }
-    };
-
-    let appearance_backend = crate::backends::appearance::GsettingsBackend::new();
-    let apps_backend = crate::backends::applications::DesktopEntryBackend::new();
-    let input_backend = crate::backends::input::create_input_backend();
-
-    let (cmd_tx, mut cmd_rx) = mpsc::channel::<BackendCommand>(10);
-    app.lock().await.cmd_tx = Some(cmd_tx);
-
-    let svc_backend_for_cmd = crate::backends::systemd::SystemdBackend::new().await.ok();
-    let bt_backend_for_cmd = crate::backends::bluetooth::BlueZBackend::new().await.ok();
-    let audio_backend_for_cmd = crate::backends::audio::WpctlBackend::new();
-    let appearance_backend_for_cmd = crate::backends::appearance::GsettingsBackend::new();
-    let power_backend_for_cmd = crate::backends::power::UPowerBackend::new().await.ok();
-    let network_backend_for_cmd = crate::backends::network::NetworkManagerBackend::new()
-        .await
-        .ok();
-    let sys_backend_for_cmd = crate::backends::system::RealSystemBackend::new().await;
-    let input_backend_for_cmd = crate::backends::input::create_input_backend();
-    let display_backend_for_cmd: Option<Box<dyn DisplayBackend>> = {
-        let is_hyprland = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok();
-        let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
-        if is_hyprland && session_type == "wayland" {
-            crate::backends::display::HyprlandBackend::new()
-                .ok()
-                .map(|b| Box::new(b) as Box<dyn DisplayBackend>)
-        } else {
-            Some(
-                Box::new(crate::backends::display::GenericDisplayBackend::new())
-                    as Box<dyn DisplayBackend>,
-            )
-        }
-    };
     let tx_cmd_resp = tx.clone();
 
-    let capabilities = crate::platform::PlatformCapabilities::detect(
-        net_backend.is_some(),
-        bt_backend.is_some(),
-        power_backend.is_some(),
-        true,
-        display_backend.is_some(),
-        appearance_backend.is_some(),
-        services_backend.is_some(),
-        input_backend.is_some(),
-    );
-    let _ = tx_backend
-        .send(AppEvent::UpdateCapabilities(Box::new(capabilities)))
-        .await;
-
     tokio::spawn(async move {
+        let sys_backend = RealSystemBackend::new().await;
+        let net_backend = crate::backends::network::NetworkManagerBackend::new()
+            .await
+            .ok();
+        let bt_backend = crate::backends::bluetooth::BlueZBackend::new().await.ok();
+        let power_backend = crate::backends::power::UPowerBackend::new().await.ok();
+        let audio_backend = crate::backends::audio::WpctlBackend::new();
+        let services_backend = crate::backends::systemd::SystemdBackend::new().await.ok();
+
+        let display_backend: Option<Box<dyn DisplayBackend>> = {
+            let is_hyprland = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok();
+            let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
+            if is_hyprland && session_type == "wayland" {
+                crate::backends::display::HyprlandBackend::new()
+                    .ok()
+                    .map(|b| Box::new(b) as Box<dyn DisplayBackend>)
+            } else {
+                Some(
+                    Box::new(crate::backends::display::GenericDisplayBackend::new())
+                        as Box<dyn DisplayBackend>,
+                )
+            }
+        };
+
+        let appearance_backend = crate::backends::appearance::GsettingsBackend::new();
+        let apps_backend = crate::backends::applications::DesktopEntryBackend::new();
+        let input_backend = crate::backends::input::create_input_backend();
+
+        let capabilities = crate::platform::PlatformCapabilities::detect(
+            net_backend.is_some(),
+            bt_backend.is_some(),
+            power_backend.is_some(),
+            true,
+            display_backend.is_some(),
+            appearance_backend.is_some(),
+            services_backend.is_some(),
+            input_backend.is_some(),
+        );
+        let _ = tx_backend
+            .send(AppEvent::UpdateCapabilities(Box::new(capabilities)))
+            .await;
+
         let mut last_poll = tokio::time::Instant::now()
             .checked_sub(Duration::from_secs(10))
             .unwrap_or_else(tokio::time::Instant::now);
@@ -2491,7 +2469,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
 
                             // Immediately refresh services
-                            if let Some(svc) = &svc_backend_for_cmd {
+                            if let Some(svc) = &services_backend {
                                 if let Ok(s) = svc.get_services().await {
                                     let _ = tx_cmd_resp.send(AppEvent::UpdateServices(s)).await;
                                 }
@@ -2520,7 +2498,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                     .await;
                                 continue;
                             }
-                            if let Some(svc) = &svc_backend_for_cmd {
+                            if let Some(svc) = &services_backend {
                                 let mutate = if start { svc.start_service(&name) } else { svc.stop_service(&name) };
 
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
@@ -2556,7 +2534,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ToggleBluetoothPower(target_state) => {
-                            if let Some(bt) = &bt_backend_for_cmd {
+                            if let Some(bt) = &bt_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     bt.set_powered(target_state),
                                     bt.get_adapter(),
@@ -2587,7 +2565,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ConnectBluetooth(id, connect) => {
-                            if let Some(bt) = &bt_backend_for_cmd {
+                            if let Some(bt) = &bt_backend {
                                 let mutate = if connect { bt.connect_device(&id) } else { bt.disconnect_device(&id) };
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     mutate,
@@ -2619,7 +2597,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ToggleAudioMute(id, _is_sink) => {
-                            let initial_muted = audio_backend_for_cmd
+                            let initial_muted = audio_backend
                                 .get_volume(id)
                                 .await
                                 .map(|(_, m)| m)
@@ -2627,8 +2605,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             let target_muted = !initial_muted;
 
                             let (mutation_ok, verified, _final_state, mutation_error) = execute_transaction!(
-                                audio_backend_for_cmd.toggle_mute(id),
-                                audio_backend_for_cmd.get_volume(id),
+                                audio_backend.toggle_mute(id),
+                                audio_backend.get_volume(id),
                                 |(_, muted): &(f64, bool)| *muted == target_muted,
                                 10, 50
                             );
@@ -2653,9 +2631,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 let err_msg = mutation_error.unwrap_or_else(|| format!("Failed to toggle mute for audio device {}", id));
                                 let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                             }
-                            if let Ok(sinks) = audio_backend_for_cmd.get_sinks().await {
-                                if let Ok(sources) = audio_backend_for_cmd.get_sources().await {
-                                    if let Ok(streams) = audio_backend_for_cmd.get_streams().await {
+                            if let Ok(sinks) = audio_backend.get_sinks().await {
+                                if let Ok(sources) = audio_backend.get_sources().await {
+                                    if let Ok(streams) = audio_backend.get_streams().await {
                                         let _ = tx_cmd_resp
                                             .send(AppEvent::UpdateAudio(sinks, sources, streams))
                                             .await;
@@ -2665,8 +2643,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         }
                         BackendCommand::SetAudioVolume(id, vol) => {
                             let (mutation_ok, verified, _final_state, mutation_error) = execute_transaction!(
-                                audio_backend_for_cmd.set_volume(id, vol),
-                                audio_backend_for_cmd.get_volume(id),
+                                audio_backend.set_volume(id, vol),
+                                audio_backend.get_volume(id),
                                 |(cur_vol, _): &(f64, bool)| (*cur_vol - vol).abs() < 0.03,
                                 10, 50
                             );
@@ -2681,9 +2659,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                     ))
                                     .await;
                             }
-                            if let Ok(sinks) = audio_backend_for_cmd.get_sinks().await {
-                                if let Ok(sources) = audio_backend_for_cmd.get_sources().await {
-                                    if let Ok(streams) = audio_backend_for_cmd.get_streams().await {
+                            if let Ok(sinks) = audio_backend.get_sinks().await {
+                                if let Ok(sources) = audio_backend.get_sources().await {
+                                    if let Ok(streams) = audio_backend.get_streams().await {
                                         let _ = tx_cmd_resp
                                             .send(AppEvent::UpdateAudio(sinks, sources, streams))
                                             .await;
@@ -2692,7 +2670,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::SetDisplayScale(name, scale) => {
-                            if let Some(disp) = &display_backend_for_cmd {
+                            if let Some(disp) = &display_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     disp.set_scale(&name, scale),
                                     disp.get_monitors(),
@@ -2721,7 +2699,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
 
                         BackendCommand::CycleMonitorMode(name, forward) => {
-                            if let Some(disp) = &display_backend_for_cmd {
+                            if let Some(disp) = &display_backend {
                                 if let Ok(monitors) = disp.get_monitors().await {
                                     if let Some(m) = monitors.iter().find(|m| m.name == name) {
                                         let mut modes = vec!["extend".to_string(), "disable".to_string()];
@@ -2762,7 +2740,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::SetDisplayResolution(name, width, height, refresh) => {
-                            if let Some(disp) = &display_backend_for_cmd {
+                            if let Some(disp) = &display_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     disp.set_resolution(&name, width, height, refresh),
                                     disp.get_monitors(),
@@ -2793,7 +2771,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ToggleColorScheme => {
-                            if let Some(appr) = &appearance_backend_for_cmd {
+                            if let Some(appr) = &appearance_backend {
                                 if let Ok(info) = appr.get_info().await {
                                     let new_scheme = if info.color_scheme.contains("dark") {
                                         "prefer-light"
@@ -2825,7 +2803,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::SetChargeLimit(limit) => {
-                            if let Some(pow) = &power_backend_for_cmd {
+                            if let Some(pow) = &power_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     pow.set_charge_limit(limit),
                                     pow.get_info(),
@@ -2849,7 +2827,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         }
 
                         BackendCommand::CyclePowerButtonAction(forward) => {
-                            if let Some(pwr) = &power_backend_for_cmd {
+                            if let Some(pwr) = &power_backend {
                                 if let Ok(info) = pwr.get_info().await {
                                     let actions = ["ignore", "poweroff", "suspend", "hibernate", "interactive"];
                                     let current_idx = actions.iter().position(|a| a == &info.power_button_action).unwrap_or(1);
@@ -2872,7 +2850,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                                                 BackendCommand::CycleIdleDelay(forward) => {
-                            if let Some(pwr) = &power_backend_for_cmd {
+                            if let Some(pwr) = &power_backend {
                                 if let Ok(info) = pwr.get_info().await {
                                     let delays: Vec<u32> = vec![0, 60, 120, 300, 600, 900, 1800, 3600];
                                     let current = info.idle_delay.unwrap_or(300);
@@ -2896,7 +2874,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::CycleLockDelay(forward) => {
-                            if let Some(pwr) = &power_backend_for_cmd {
+                            if let Some(pwr) = &power_backend {
                                 if let Ok(info) = pwr.get_info().await {
                                     let delays: Vec<u32> = vec![0, 30, 60, 120, 300, 600, 900, 1800];
                                     let current = info.lock_delay.unwrap_or(300);
@@ -2920,7 +2898,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::CycleSuspendDelay(forward) => {
-                            if let Some(pwr) = &power_backend_for_cmd {
+                            if let Some(pwr) = &power_backend {
                                 if let Ok(info) = pwr.get_info().await {
                                     let delays: Vec<u32> = vec![0, 300, 600, 900, 1800, 3600, 7200];
                                     let current = info.suspend_delay.unwrap_or(0);
@@ -2944,7 +2922,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::CycleLidAction(forward) => {
-                            if let Some(pwr) = &power_backend_for_cmd {
+                            if let Some(pwr) = &power_backend {
                                 if let Ok(info) = pwr.get_info().await {
                                     let actions = ["ignore", "suspend", "hibernate"];
                                     let current_idx = actions.iter().position(|a| a == &info.lid_action).unwrap_or(1);
@@ -2967,7 +2945,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::CyclePowerProfile => {
-                            if let Some(power) = &power_backend_for_cmd {
+                            if let Some(power) = &power_backend {
                                 if let Ok(info) = power.get_info().await {
                                     if let Some(prof) = info.power_profile {
                                         let next = match prof.as_str() {
@@ -3002,7 +2980,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ToggleFlightMode(target_state) => {
-                            if let Some(net) = &network_backend_for_cmd {
+                            if let Some(net) = &net_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     net.set_flight_mode_enabled(target_state),
                                     net.flight_mode_enabled(),
@@ -3027,7 +3005,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ToggleHotspot(target_state) => {
-                            if let Some(net) = &network_backend_for_cmd {
+                            if let Some(net) = &net_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     net.set_hotspot_enabled(target_state),
                                     net.hotspot_enabled(),
@@ -3052,7 +3030,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ToggleWifi(target_state) => {
-                            if let Some(net) = &network_backend_for_cmd {
+                            if let Some(net) = &net_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     net.set_wifi_enabled(target_state),
                                     net.wifi_enabled(),
@@ -3079,7 +3057,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ConnectNetwork(id, connect) => {
-                            if let Some(net) = &network_backend_for_cmd {
+                            if let Some(net) = &net_backend {
                                 let mutate = if connect { net.connect(&id) } else { net.disconnect(&id) };
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     mutate,
@@ -3113,7 +3091,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ConnectNetworkWithPassword(id, password) => {
-                            if let Some(net) = &network_backend_for_cmd {
+                            if let Some(net) = &net_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     net.connect_with_password(&id, &password),
                                     net.networks(),
@@ -3146,7 +3124,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ForgetNetwork(id) => {
-                            if let Some(net) = &network_backend_for_cmd {
+                            if let Some(net) = &net_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     net.forget_network(&id),
                                     net.networks(),
@@ -3175,7 +3153,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::RescanWifi => {
-                            if let Some(net) = &network_backend_for_cmd {
+                            if let Some(net) = &net_backend {
                                 let _ = net.rescan().await;
                                 tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
                                 if let Ok(networks) = net.networks().await {
@@ -3189,8 +3167,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         BackendCommand::SetAudioDefault(id, is_sink) => {
                             if is_sink {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
-                                    audio_backend_for_cmd.set_default_sink(id),
-                                    audio_backend_for_cmd.get_sinks(),
+                                    audio_backend.set_default_sink(id),
+                                    audio_backend.get_sinks(),
                                     |sinks: &Vec<crate::backends::AudioDevice>| {
                                         sinks.iter().any(|s| s.id == id && s.is_default)
                                     },
@@ -3216,8 +3194,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                     let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                                 }
                                 if let Ok(sinks) = final_state {
-                                    if let Ok(sources) = audio_backend_for_cmd.get_sources().await {
-                                        if let Ok(streams) = audio_backend_for_cmd.get_streams().await {
+                                    if let Ok(sources) = audio_backend.get_sources().await {
+                                        if let Ok(streams) = audio_backend.get_streams().await {
                                             let _ = tx_cmd_resp
                                                 .send(AppEvent::UpdateAudio(sinks, sources, streams))
                                                 .await;
@@ -3226,8 +3204,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 }
                             } else {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
-                                    audio_backend_for_cmd.set_default_source(id),
-                                    audio_backend_for_cmd.get_sources(),
+                                    audio_backend.set_default_source(id),
+                                    audio_backend.get_sources(),
                                     |sources: &Vec<crate::backends::AudioDevice>| {
                                         sources.iter().any(|s| s.id == id && s.is_default)
                                     },
@@ -3253,8 +3231,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                     let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                                 }
                                 if let Ok(sources) = final_state {
-                                    if let Ok(sinks) = audio_backend_for_cmd.get_sinks().await {
-                                        if let Ok(streams) = audio_backend_for_cmd.get_streams().await {
+                                    if let Ok(sinks) = audio_backend.get_sinks().await {
+                                        if let Ok(streams) = audio_backend.get_streams().await {
                                             let _ = tx_cmd_resp
                                                 .send(AppEvent::UpdateAudio(sinks, sources, streams))
                                                 .await;
@@ -3264,7 +3242,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::RemoveBluetoothDevice(id) => {
-                            if let Some(bt) = &bt_backend_for_cmd {
+                            if let Some(bt) = &bt_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     bt.remove_device(&id),
                                     bt.devices(),
@@ -3362,7 +3340,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         }
                         BackendCommand::SystemPowerAction(action) => {
                             use crate::backends::SystemBackend;
-                            if let Err(e) = sys_backend_for_cmd.power_action(&action).await {
+                            if let Err(e) = sys_backend.power_action(&action).await {
                                 let _ = tx_cmd_resp
                                     .send(AppEvent::Notification(format!(
                                         "Power action failed: {}",
@@ -3379,7 +3357,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::SetDisplayBrightness(target) => {
-                            if let Some(disp) = &display_backend_for_cmd {
+                            if let Some(disp) = &display_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     disp.set_brightness(target),
                                     disp.get_brightness(),
@@ -3423,7 +3401,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ToggleNightLight(target) => {
-                            if let Some(disp) = &display_backend_for_cmd {
+                            if let Some(disp) = &display_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     disp.set_night_light_enabled(target, 4500),
                                     disp.is_night_light_enabled(),
@@ -3460,7 +3438,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ToggleGrayscale(target) => {
-                            if let Some(disp) = &display_backend_for_cmd {
+                            if let Some(disp) = &display_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     disp.set_grayscale_enabled(target),
                                     disp.is_grayscale_enabled(),
@@ -3498,8 +3476,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         }
                         BackendCommand::ToggleNTP(target) => {
                             let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
-                                sys_backend_for_cmd.set_ntp(target),
-                                sys_backend_for_cmd.get_info(),
+                                sys_backend.set_ntp(target),
+                                sys_backend.get_info(),
                                 |info: &SystemInfo| info.ntp_active == target,
                                 15,
                                 100
@@ -3535,7 +3513,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ToggleNaturalScroll(target) => {
-                            if let Some(inp) = &input_backend_for_cmd {
+                            if let Some(inp) = &input_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     inp.set_natural_scroll(target),
                                     inp.get_settings(),
@@ -3574,7 +3552,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ToggleTapToClick(target) => {
-                            if let Some(inp) = &input_backend_for_cmd {
+                            if let Some(inp) = &input_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     inp.set_tap_to_click(target),
                                     inp.get_settings(),
@@ -3613,7 +3591,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ToggleLeftHanded(target) => {
-                            if let Some(inp) = &input_backend_for_cmd {
+                            if let Some(inp) = &input_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     inp.set_left_handed(target),
                                     inp.get_settings(),
@@ -3652,7 +3630,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::SetPointerSensitivity(val) => {
-                            if let Some(inp) = &input_backend_for_cmd {
+                            if let Some(inp) = &input_backend {
                                 let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
                                     inp.set_sensitivity(val),
                                     inp.get_settings(),
@@ -3682,7 +3660,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::ToggleVpn(uuid, activate) => {
-                            if let Some(net) = &network_backend_for_cmd {
+                            if let Some(net) = &net_backend {
                                 let (mutation_ok, verified, _final_state, mutation_error) = execute_transaction!(
                                     net.toggle_vpn(&uuid, activate),
                                     net.get_vpns(),
@@ -3728,8 +3706,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                         BackendCommand::SetHostname(name) => {
                             let target_name = name.clone();
                             let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
-                                sys_backend_for_cmd.set_hostname(&name),
-                                sys_backend_for_cmd.get_info(),
+                                sys_backend.set_hostname(&name),
+                                sys_backend.get_info(),
                                 |info: &SystemInfo| info.hostname == target_name,
                                 15,
                                 100
@@ -3763,7 +3741,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::CycleGtkTheme(next) => {
-                            if let Some(appr) = &appearance_backend_for_cmd {
+                            if let Some(appr) = &appearance_backend {
                                 if let Ok(info) = appr.get_info().await {
                                     if !info.available_gtk_themes.is_empty() {
                                         let cur_idx = info
@@ -3827,7 +3805,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::CycleCursorTheme(forward) => {
-                            if let Some(appr) = &appearance_backend_for_cmd {
+                            if let Some(appr) = &appearance_backend {
                                 if let Ok(info) = appr.get_info().await {
                                     if !info.available_cursor_themes.is_empty() {
                                         let current_idx = info.available_cursor_themes.iter().position(|t| t == &info.cursor_theme).unwrap_or(0);
@@ -3859,7 +3837,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             });
                         }
                         BackendCommand::SetWallpaper(wp) => {
-                            if let Some(app) = &appearance_backend_for_cmd {
+                            if let Some(app) = &appearance_backend {
                                 let _ = app.set_wallpaper(&wp).await;
                                 if let Ok(info) = app.get_info().await {
                                     let _ = tx_cmd_resp.send(AppEvent::UpdateAppearance(info)).await;
@@ -3867,7 +3845,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::SetFontName(font) => {
-                            if let Some(appr) = &appearance_backend_for_cmd {
+                            if let Some(appr) = &appearance_backend {
                                 let _ = execute_transaction!(
                                     appr.set_font_name(&font),
                                     appr.get_info(),
@@ -3880,7 +3858,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             }
                         }
                         BackendCommand::CycleIconTheme(next) => {
-                            if let Some(appr) = &appearance_backend_for_cmd {
+                            if let Some(appr) = &appearance_backend {
                                 if let Ok(info) = appr.get_info().await {
                                     if !info.available_icon_themes.is_empty() {
                                         let cur_idx = info
