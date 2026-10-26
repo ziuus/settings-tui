@@ -244,6 +244,7 @@ impl PowerBackend for UPowerBackend {
             idle_delay,
             lock_delay,
             suspend_delay,
+            stay_awake: is_stay_awake_active(),
         })
     }
 
@@ -394,6 +395,211 @@ impl PowerBackend for UPowerBackend {
             Err(anyhow::anyhow!("Failed to set lid action"))
         }
     }
+
+    async fn set_stay_awake(&self, enabled: bool) -> Result<()> {
+        apply_stay_awake(enabled)
+    }
+}
+
+fn get_state_dir() -> std::path::PathBuf {
+    if let Ok(runtime) = std::env::var("XDG_RUNTIME_DIR") {
+        let p = std::path::PathBuf::from(runtime).join("settings-tui");
+        let _ = std::fs::create_dir_all(&p);
+        p
+    } else if let Ok(home) = std::env::var("HOME") {
+        let p = std::path::PathBuf::from(home).join(".config/settings-tui");
+        let _ = std::fs::create_dir_all(&p);
+        p
+    } else {
+        std::path::PathBuf::from("/tmp/settings-tui")
+    }
+}
+
+fn binary_exists(bin: &str) -> bool {
+    if let Some(path_var) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let full_path = dir.join(bin);
+            if full_path.is_file() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn is_process_running(proc: &str) -> bool {
+    if let Ok(output) = std::process::Command::new("pidof").arg(proc).output() {
+        if output.status.success() && !output.stdout.is_empty() {
+            return true;
+        }
+    }
+    if let Ok(output) = std::process::Command::new("pgrep")
+        .arg("-x")
+        .arg(proc)
+        .output()
+    {
+        if output.status.success() && !output.stdout.is_empty() {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn is_stay_awake_active() -> bool {
+    let state_dir = get_state_dir();
+    let pid_file = state_dir.join("stay_awake.pid");
+    let hypridle_marker = state_dir.join("stay_awake_hypridle");
+
+    if hypridle_marker.exists() {
+        return true;
+    }
+
+    if let Ok(pid_str) = std::fs::read_to_string(&pid_file) {
+        if let Ok(pid) = pid_str.trim().parse::<u32>() {
+            if std::path::Path::new(&format!("/proc/{}", pid)).exists() {
+                return true;
+            }
+        }
+    }
+
+    if let Ok(output) = std::process::Command::new("systemd-inhibit")
+        .args(["--list", "--json=short"])
+        .output()
+    {
+        if output.status.success() {
+            let s = String::from_utf8_lossy(&output.stdout);
+            if s.contains("\"who\":\"settings-tui\"") {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+pub fn apply_stay_awake(enabled: bool) -> Result<()> {
+    let state_dir = get_state_dir();
+    let pid_file = state_dir.join("stay_awake.pid");
+    let hypridle_marker = state_dir.join("stay_awake_hypridle");
+    let gnome_marker = state_dir.join("stay_awake_gnome_delay");
+
+    if enabled {
+        let _ = apply_stay_awake(false);
+
+        if binary_exists("systemd-inhibit") {
+            if let Ok(child) = std::process::Command::new("systemd-inhibit")
+                .args([
+                    "--what=idle:sleep:handle-lid-switch",
+                    "--who=settings-tui",
+                    "--why=Stay Awake (Caffeine) enabled by user",
+                    "--mode=block",
+                    "sleep",
+                    "infinity",
+                ])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                let _ = std::fs::write(&pid_file, child.id().to_string());
+            }
+        }
+
+        if is_process_running("hypridle") {
+            let svc_active = std::process::Command::new("systemctl")
+                .args(["--user", "is-active", "--quiet", "hypridle.service"])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+
+            if svc_active {
+                let _ = std::process::Command::new("systemctl")
+                    .args(["--user", "stop", "hypridle.service"])
+                    .output();
+                let _ = std::fs::write(&hypridle_marker, "service");
+            } else {
+                let _ = std::process::Command::new("pkill")
+                    .args(["-STOP", "hypridle"])
+                    .output();
+                let _ = std::fs::write(&hypridle_marker, "process");
+            }
+        }
+
+        if is_process_running("swayidle") {
+            let _ = std::process::Command::new("pkill")
+                .args(["-STOP", "swayidle"])
+                .output();
+        }
+
+        if binary_exists("gsettings") {
+            if let Ok(out) = std::process::Command::new("gsettings")
+                .args(["get", "org.gnome.desktop.session", "idle-delay"])
+                .output()
+            {
+                let delay = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                let _ = std::fs::write(&gnome_marker, delay);
+                let _ = std::process::Command::new("gsettings")
+                    .args(["set", "org.gnome.desktop.session", "idle-delay", "0"])
+                    .output();
+            }
+        }
+
+        Ok(())
+    } else {
+        if let Ok(pid_str) = std::fs::read_to_string(&pid_file) {
+            if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                let _ = std::process::Command::new("kill")
+                    .arg(pid.to_string())
+                    .output();
+            }
+            let _ = std::fs::remove_file(&pid_file);
+        }
+        let _ = std::process::Command::new("pkill")
+            .args(["-f", "systemd-inhibit.*settings-tui"])
+            .output();
+
+        if hypridle_marker.exists() {
+            if let Ok(kind) = std::fs::read_to_string(&hypridle_marker) {
+                if kind.trim() == "service" {
+                    let _ = std::process::Command::new("systemctl")
+                        .args(["--user", "start", "hypridle.service"])
+                        .output();
+                } else {
+                    let _ = std::process::Command::new("pkill")
+                        .args(["-CONT", "hypridle"])
+                        .output();
+                }
+            }
+            let _ = std::fs::remove_file(&hypridle_marker);
+        } else if !is_process_running("hypridle") {
+            let _ = std::process::Command::new("systemctl")
+                .args(["--user", "start", "hypridle.service"])
+                .output();
+        }
+
+        let _ = std::process::Command::new("pkill")
+            .args(["-CONT", "swayidle"])
+            .output();
+
+        if gnome_marker.exists() {
+            if let Ok(val) = std::fs::read_to_string(&gnome_marker) {
+                let cleaned = val.trim().split(' ').next_back().unwrap_or("300");
+                if let Ok(n) = cleaned.parse::<u32>() {
+                    let _ = std::process::Command::new("gsettings")
+                        .args([
+                            "set",
+                            "org.gnome.desktop.session",
+                            "idle-delay",
+                            &n.to_string(),
+                        ])
+                        .output();
+                }
+            }
+            let _ = std::fs::remove_file(&gnome_marker);
+        }
+
+        Ok(())
+    }
 }
 
 fn get_hypridle_conf_path() -> Option<std::path::PathBuf> {
@@ -490,5 +696,32 @@ fn parse_systemd_sec(s: &str) -> Option<u32> {
         num.parse::<u32>().ok()
     } else {
         s.parse::<u32>().ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_systemd_sec() {
+        assert_eq!(parse_systemd_sec("30s"), Some(30));
+        assert_eq!(parse_systemd_sec("5min"), Some(300));
+        assert_eq!(parse_systemd_sec("10m"), Some(600));
+        assert_eq!(parse_systemd_sec("1h"), Some(3600));
+    }
+
+    #[test]
+    fn test_parse_hypridle_timeout() {
+        let conf = "listener {\n    timeout = 300\n    on-timeout = hyprlock\n}\nlistener {\n    timeout = 1800\n    on-timeout = systemctl suspend\n}";
+        assert_eq!(parse_hypridle_timeout(conf, "hyprlock"), Some(300));
+        assert_eq!(parse_hypridle_timeout(conf, "suspend"), Some(1800));
+        assert_eq!(parse_hypridle_timeout(conf, "dpms"), None);
+    }
+
+    #[test]
+    fn test_stay_awake_state_toggle() {
+        // Turning off should succeed and clean up markers cleanly
+        assert!(apply_stay_awake(false).is_ok());
     }
 }

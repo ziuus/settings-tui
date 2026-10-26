@@ -17,7 +17,26 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
     lines.push(Line::from(""));
 
     if let Some(info) = &app.power_info {
-        // Active Profile Selector
+        // Stay Awake (Caffeine) Toggle (Row 0)
+        let is_awake_selected = content_active && app.selected_item == 0;
+        let awake_val = if info.stay_awake { "On" } else { "Off" };
+        let awake_desc = if info.stay_awake {
+            "Active: Screen blanking, lock, and system sleep are blocked"
+        } else {
+            "Keep display and system awake indefinitely"
+        };
+        let awake_control = widgets::value_selector(awake_val, is_awake_selected);
+        let awake_lines = widgets::setting_row(
+            "Stay Awake (Caffeine)",
+            awake_desc,
+            awake_control,
+            is_awake_selected,
+            60,
+        );
+        lines.extend(awake_lines);
+        lines.push(Line::from(""));
+
+        // Active Profile Selector (Row 1)
         let prof_val = info.power_profile.as_deref().unwrap_or("Unknown");
         let prof_desc = match prof_val {
             "power-saver" => "Optimizes battery life by reducing performance",
@@ -26,7 +45,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             _ => "Current system power policy",
         };
 
-        let is_prof_selected = content_active && app.selected_item == 0;
+        let is_prof_selected = content_active && app.selected_item == 1;
         let prof_control = widgets::value_selector(prof_val, is_prof_selected);
         let prof_lines = widgets::setting_row(
             "Power Profile",
@@ -38,7 +57,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
         lines.extend(prof_lines);
         lines.push(Line::from(""));
 
-        let mut row_idx = 1;
+        let mut row_idx = 2;
 
         if let Some(limit) = info.charge_limit {
             let limit_desc = if limit < 100 {

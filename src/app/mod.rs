@@ -121,6 +121,7 @@ pub enum BackendCommand {
     CycleGtkTheme(bool), // true = next, false = prev
     ToggleNightLight(bool),
     ToggleGrayscale(bool),
+    ToggleStayAwake(bool),
     CycleCursorTheme(bool),
     SetFontName(String),
     SetWallpaper(String),
@@ -688,10 +689,16 @@ impl App {
             .as_ref()
             .and_then(|info| info.charge_limit)
             .is_some();
-        let mut pwr_idx = 1;
-        if has_limit {
+        let awake_idx = 0;
+        let prof_idx = 1;
+        let mut pwr_idx = 2;
+        let limit_idx = if has_limit {
+            let idx = pwr_idx;
             pwr_idx += 1;
-        }
+            Some(idx)
+        } else {
+            None
+        };
         let btn_idx = pwr_idx;
         pwr_idx += 1;
         let lid_idx = pwr_idx;
@@ -715,12 +722,25 @@ impl App {
             }
         };
 
-        if has_limit {
+        add_pwr_search(
+            "Stay Awake (Caffeine)",
+            "Prevent screen blanking and automatic system sleep",
+            "stay awake caffeine keep awake no sleep idle inhibit screen on",
+            awake_idx,
+        );
+        add_pwr_search(
+            "Power Profile",
+            "Current system power policy",
+            "profile performance balanced power-saver energy governor",
+            prof_idx,
+        );
+
+        if let Some(idx) = limit_idx {
             add_pwr_search(
                 "Battery Charge Limit",
                 "Conservation mode active (limits charge)",
                 "charge threshold",
-                1,
+                idx,
             );
         }
         add_pwr_search(
@@ -995,7 +1015,7 @@ impl App {
                     .as_ref()
                     .and_then(|info| info.charge_limit)
                     .is_some();
-                1 + (if has_limit { 1 } else { 0 }) + 5
+                2 + (if has_limit { 1 } else { 0 }) + 5
             }
             "Mouse & Touchpad" => 5,
             "Applications" => self.autostart_apps.len() + self.applications.len(),
@@ -1342,7 +1362,7 @@ impl App {
                                 }
                             }
                         } else if cat == "Power" {
-                            let mut row_idx = 1;
+                            let mut row_idx = 2;
                             let has_limit = self
                                 .power_info
                                 .as_ref()
@@ -1361,6 +1381,14 @@ impl App {
                             row_idx += 1;
                             let suspend_idx = row_idx;
                             if self.selected_item == 0 {
+                                if let Some(info) = &self.power_info {
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ = tx.try_send(BackendCommand::ToggleStayAwake(
+                                            !info.stay_awake,
+                                        ));
+                                    }
+                                }
+                            } else if self.selected_item == 1 {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CyclePowerProfile);
                                 }
@@ -1493,7 +1521,7 @@ impl App {
                         } else if (key.code == KeyCode::Left || key.code == KeyCode::Char('h'))
                             && cat == "Power"
                         {
-                            let mut row_idx = 1;
+                            let mut row_idx = 2;
                             let has_limit = self
                                 .power_info
                                 .as_ref()
@@ -1512,6 +1540,15 @@ impl App {
                             row_idx += 1;
                             let suspend_idx = row_idx;
                             if self.selected_item == 0 {
+                                if let Some(info) = &self.power_info {
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ = tx.try_send(BackendCommand::ToggleStayAwake(
+                                            !info.stay_awake,
+                                        ));
+                                    }
+                                }
+                                return;
+                            } else if self.selected_item == 1 {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CyclePowerProfile);
                                 }
@@ -1809,7 +1846,7 @@ impl App {
                                 }
                             }
                         } else if cat == "Power" {
-                            let mut row_idx = 1;
+                            let mut row_idx = 2;
                             let has_limit = self
                                 .power_info
                                 .as_ref()
@@ -1830,6 +1867,14 @@ impl App {
                             let suspend_idx = row_idx;
 
                             if self.selected_item == 0 {
+                                if let Some(info) = &self.power_info {
+                                    if let Some(tx) = &self.cmd_tx {
+                                        let _ = tx.try_send(BackendCommand::ToggleStayAwake(
+                                            !info.stay_awake,
+                                        ));
+                                    }
+                                }
+                            } else if self.selected_item == 1 {
                                 if let Some(tx) = &self.cmd_tx {
                                     let _ = tx.try_send(BackendCommand::CyclePowerProfile);
                                 }
@@ -2976,6 +3021,38 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                             let _ = tx_cmd_resp.send(AppEvent::UpdatePower(actual_info)).await;
                                         }
                                     }
+                                }
+                            }
+                        }
+                        BackendCommand::ToggleStayAwake(target) => {
+                            if let Some(pwr) = &power_backend {
+                                let (mutation_ok, verified, final_state, mutation_error) = execute_transaction!(
+                                    pwr.set_stay_awake(target),
+                                    pwr.get_info(),
+                                    |info: &PowerInfo| info.stay_awake == target,
+                                    10, 100
+                                );
+
+                                if mutation_ok {
+                                    let msg = if verified {
+                                        if target {
+                                            "Stay Awake (Caffeine) enabled: Screen blanking and sleep inhibited."
+                                        } else {
+                                            "Stay Awake disabled: Normal idle and sleep restored."
+                                        }
+                                    } else {
+                                        "Stay Awake toggled, but verification timed out."
+                                    };
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(msg.to_string())).await;
+                                } else {
+                                    let err_msg = mutation_error.unwrap_or_else(|| {
+                                        "Failed to toggle Stay Awake mode.".to_string()
+                                    });
+                                    let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
+                                }
+
+                                if let Ok(actual_info) = final_state {
+                                    let _ = tx_cmd_resp.send(AppEvent::UpdatePower(actual_info)).await;
                                 }
                             }
                         }
@@ -4724,6 +4801,7 @@ mod tests {
             battery_model: Some("L18M4PF5".to_string()),
             battery_vendor: Some("SMP".to_string()),
             charge_limit: None,
+            stay_awake: false,
         });
 
         let lines = crate::ui::pages::power::render(&app, true);
@@ -5144,6 +5222,7 @@ mod tests {
             idle_delay: Some(300),
             lock_delay: Some(60),
             suspend_delay: Some(1800),
+            stay_awake: false,
         });
 
         let (tx, mut rx) = mpsc::channel(10);
@@ -5152,20 +5231,31 @@ mod tests {
         // Render check
         let lines = crate::ui::pages::power::render(&app, true);
         let rendered: String = lines.into_iter().map(|l| format!("{:?}", l)).collect();
+        assert!(rendered.contains("Stay Awake (Caffeine)"));
         assert!(rendered.contains("Display Sleep Timeout"));
         assert!(rendered.contains("Screen Lock Timeout"));
         assert!(rendered.contains("Automatic Suspend Timeout"));
 
         // Row indices without charge_limit:
-        // 0: Profile
-        // 1: Power button
-        // 2: Lid
-        // 3: Display Sleep Timeout (idle_delay)
-        // 4: Screen Lock Timeout (lock_delay)
-        // 5: Automatic Suspend Timeout (suspend_delay)
+        // 0: Stay Awake
+        // 1: Profile
+        // 2: Power button
+        // 3: Lid
+        // 4: Display Sleep Timeout (idle_delay)
+        // 5: Screen Lock Timeout (lock_delay)
+        // 6: Automatic Suspend Timeout (suspend_delay)
 
-        // Select lock_delay (item 4)
-        app.selected_item = 4;
+        // Select Stay Awake (item 0)
+        app.selected_item = 0;
+        app.handle_key(press(KeyCode::Char(' ')));
+        if let Ok(BackendCommand::ToggleStayAwake(enabled)) = rx.try_recv() {
+            assert!(enabled, "Space should toggle Stay Awake to true");
+        } else {
+            panic!("Expected ToggleStayAwake command on Space");
+        }
+
+        // Select lock_delay (item 5)
+        app.selected_item = 5;
         app.handle_key(press(KeyCode::Right));
         if let Ok(BackendCommand::CycleLockDelay(forward)) = rx.try_recv() {
             assert!(forward, "Right arrow should cycle lock delay forward");
@@ -5173,8 +5263,8 @@ mod tests {
             panic!("Expected CycleLockDelay command on Right key");
         }
 
-        // Select suspend_delay (item 5)
-        app.selected_item = 5;
+        // Select suspend_delay (item 6)
+        app.selected_item = 6;
         app.handle_key(press(KeyCode::Enter));
         if let Ok(BackendCommand::CycleSuspendDelay(forward)) = rx.try_recv() {
             assert!(forward, "Enter should cycle suspend delay forward");

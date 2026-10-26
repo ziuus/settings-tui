@@ -218,6 +218,7 @@ pub struct PowerInfo {
     pub idle_delay: Option<u32>,
     pub lock_delay: Option<u32>,
     pub suspend_delay: Option<u32>,
+    pub stay_awake: bool,
 }
 
 #[async_trait]
@@ -230,6 +231,7 @@ pub trait PowerBackend: Send + Sync {
     async fn set_idle_delay(&self, seconds: u32) -> Result<()>;
     async fn set_lock_delay(&self, seconds: u32) -> Result<()>;
     async fn set_suspend_delay(&self, seconds: u32) -> Result<()>;
+    async fn set_stay_awake(&self, enabled: bool) -> Result<()>;
 }
 
 // Core definitions for Services
