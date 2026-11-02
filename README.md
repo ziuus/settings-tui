@@ -6,6 +6,7 @@
 
 [![CI](https://github.com/ziuus/settings-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/ziuus/settings-tui/actions/workflows/ci.yml)
 [![GitHub stars](https://img.shields.io/github/stars/ziuus/settings-tui.svg?style=flat&color=yellow)](https://github.com/ziuus/settings-tui/stargazers)
+[![AUR version](https://img.shields.io/aur/version/settings-tui-bin?color=1793d1&logo=arch-linux&logoColor=white)](https://aur.archlinux.org/packages/settings-tui-bin)
 [![Crates.io](https://img.shields.io/crates/v/settings-tui.svg?style=flat&color=fc8c34)](https://crates.io/crates/settings-tui)
 [![Crates.io Downloads](https://img.shields.io/crates/d/settings-tui.svg?style=flat&color=fc8c34)](https://crates.io/crates/settings-tui)
 [![npm downloads](https://img.shields.io/npm/dt/settings-tui.svg?style=flat&color=CB3837)](https://www.npmjs.com/package/settings-tui)
