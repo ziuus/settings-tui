@@ -88,7 +88,12 @@ settings-tui
 settings
 ```
 
-### 5. Build & Install from Source
+### 5. Homebrew (Linux)
+```bash
+brew install ziuus/tap/settings-tui
+```
+
+### 6. Build & Install from Source
 ```bash
 git clone https://github.com/ziuus/settings-tui.git
 cd settings-tui
