@@ -27,6 +27,11 @@
 
 </div>
 
+> Building this in the open — if it saves you time, a star helps others find it.
+> Found a bug, or have an idea? [Open an issue](https://github.com/ziuus/settings-tui/issues).
+> New here? Start with a [good first issue](https://github.com/ziuus/settings-tui/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
+> New subsystem coverage and distro bug reports welcome.
+
 ---
 
 ## 🪶 Hyper-Lightweight Performance
