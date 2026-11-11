@@ -26,13 +26,15 @@ pub struct AudioDevice {
     pub form_factor: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AudioStream {
     pub id: u32,
     pub application_name: String,
     pub volume: f64,
     pub muted: bool,
     pub is_sink_input: bool, // true if playing audio, false if recording
+    pub device_id: Option<u32>,
+    pub device_name: Option<String>,
 }
 #[async_trait]
 pub trait AudioBackend: Send + Sync {
@@ -46,6 +48,7 @@ pub trait AudioBackend: Send + Sync {
     #[allow(dead_code)]
     async fn set_mute(&self, id: u32, mute: bool) -> Result<()>;
     async fn toggle_mute(&self, id: u32) -> Result<()>;
+    async fn move_stream(&self, stream_id: u32, device_id: u32) -> Result<()>;
 }
 
 // Core definitions for networks

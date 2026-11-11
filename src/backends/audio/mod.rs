@@ -129,6 +129,20 @@ impl WpctlBackend {
             None => return streams,
         };
 
+        // Build node id -> description map for sinks and sources
+        let mut node_descriptions = std::collections::HashMap::new();
+        for item in arr {
+            if item["type"] == "PipeWire:Interface:Node" {
+                if let Some(nid) = item["id"].as_u64() {
+                    let desc = item["info"]["props"]["node.description"]
+                        .as_str()
+                        .or_else(|| item["info"]["props"]["node.name"].as_str())
+                        .unwrap_or("Unknown Device");
+                    node_descriptions.insert(nid as u32, desc.to_string());
+                }
+            }
+        }
+
         for item in arr {
             if item["type"] == "PipeWire:Interface:Node" {
                 let props = &item["info"]["props"];
@@ -162,12 +176,27 @@ impl WpctlBackend {
                         }
                     }
 
+                    let device_id = props["target.node"]
+                        .as_u64()
+                        .or_else(|| props["node.target"].as_u64())
+                        .or_else(|| {
+                            props["target.node"]
+                                .as_str()
+                                .and_then(|s| s.parse::<u64>().ok())
+                        })
+                        .map(|v| v as u32);
+
+                    let device_name =
+                        device_id.and_then(|did| node_descriptions.get(&did).cloned());
+
                     streams.push(AudioStream {
                         id,
                         application_name: app_name,
                         volume,
                         muted,
                         is_sink_input,
+                        device_id,
+                        device_name,
                     });
                 }
             }
@@ -273,5 +302,41 @@ impl AudioBackend for WpctlBackend {
         } else {
             Err(anyhow!("wpctl set-mute toggle failed"))
         }
+    }
+
+    async fn move_stream(&self, stream_id: u32, device_id: u32) -> Result<()> {
+        // Try WirePlumber/PipeWire metadata target.node assignment first
+        let status = Command::new("pw-metadata")
+            .arg("-n")
+            .arg("default")
+            .arg(stream_id.to_string())
+            .arg("target.node")
+            .arg(device_id.to_string())
+            .status();
+
+        if let Ok(s) = status {
+            if s.success() {
+                return Ok(());
+            }
+        }
+
+        // Fallback to pactl move-sink-input / move-source-output
+        let pactl_status = Command::new("pactl")
+            .arg("move-sink-input")
+            .arg(stream_id.to_string())
+            .arg(device_id.to_string())
+            .status();
+
+        if let Ok(ps) = pactl_status {
+            if ps.success() {
+                return Ok(());
+            }
+        }
+
+        Err(anyhow!(
+            "Failed to route audio stream {} to device {}",
+            stream_id,
+            device_id
+        ))
     }
 }

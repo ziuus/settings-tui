@@ -110,13 +110,20 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
                 title.push_str(" (Muted)");
             }
 
+            let device_label = stream.device_name.as_deref().unwrap_or("Default Output");
+
             let type_marker = if stream.is_sink_input {
-                "Playing"
+                if is_selected {
+                    format!("Output: {} [Enter to switch]", device_label)
+                } else {
+                    format!("Output: {}", device_label)
+                }
             } else {
-                "Recording"
+                "Recording".to_string()
             };
+
             let control = widgets::slider(stream.volume, 20, is_selected);
-            let row_lines = widgets::setting_row(&title, type_marker, control, is_selected, 80);
+            let row_lines = widgets::setting_row(&title, &type_marker, control, is_selected, 80);
 
             text.extend(row_lines);
             text.push(Line::from(""));

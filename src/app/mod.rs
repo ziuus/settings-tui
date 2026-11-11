@@ -105,6 +105,7 @@ pub enum BackendCommand {
     ForgetNetwork(crate::backends::NetworkId),
     RescanWifi,
     SetAudioDefault(u32, bool),
+    MoveAudioStream(u32, u32),
     RemoveBluetoothDevice(crate::backends::BluetoothDeviceId),
     LaunchApplication(String),
     ToggleAutostart(String, bool),
@@ -1774,6 +1775,33 @@ impl App {
                                                 id, is_sink,
                                             ));
                                         }
+                                    } else if self.selected_item
+                                        < sinks_len + sources_len + streams_len
+                                    {
+                                        let stream_idx =
+                                            self.selected_item - sinks_len - sources_len;
+                                        let stream = &self.audio_streams[stream_idx];
+                                        if stream.is_sink_input && !self.audio_sinks.is_empty() {
+                                            let current_device_id = stream.device_id.unwrap_or(0);
+                                            let current_pos = self
+                                                .audio_sinks
+                                                .iter()
+                                                .position(|s| s.id == current_device_id);
+                                            let next_sink = match current_pos {
+                                                Some(pos) => {
+                                                    &self.audio_sinks
+                                                        [(pos + 1) % self.audio_sinks.len()]
+                                                }
+                                                None => &self.audio_sinks[0],
+                                            };
+                                            if let Some(tx) = &self.cmd_tx {
+                                                let _ =
+                                                    tx.try_send(BackendCommand::MoveAudioStream(
+                                                        stream.id,
+                                                        next_sink.id,
+                                                    ));
+                                            }
+                                        }
                                     }
                                 } else {
                                     if let Some(tx) = &self.cmd_tx {
@@ -3314,6 +3342,32 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                                 .send(AppEvent::UpdateAudio(sinks, sources, streams))
                                                 .await;
                                         }
+                                    }
+                                }
+                            }
+                        }
+                        BackendCommand::MoveAudioStream(stream_id, device_id) => {
+                            let res = audio_backend.move_stream(stream_id, device_id).await;
+                            match res {
+                                Ok(()) => {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::Notification(
+                                            "Application audio device routing updated.".to_string(),
+                                        ))
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let _ = tx_cmd_resp
+                                        .send(AppEvent::Notification(format!("Failed to route audio stream: {}", e)))
+                                        .await;
+                                }
+                            }
+                            if let Ok(sinks) = audio_backend.get_sinks().await {
+                                if let Ok(sources) = audio_backend.get_sources().await {
+                                    if let Ok(streams) = audio_backend.get_streams().await {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::UpdateAudio(sinks, sources, streams))
+                                            .await;
                                     }
                                 }
                             }
@@ -5007,6 +5061,62 @@ mod tests {
             assert!(!is_sink, "Microphone must have is_sink = false");
         } else {
             panic!("Expected SetAudioDefault with is_sink = false");
+        }
+    }
+
+    #[test]
+    fn test_sound_per_app_stream_device_selection() {
+        let mut app = App::new();
+        let sound_idx = app.categories.iter().position(|c| c == "Sound").unwrap();
+        app.selected_category = sound_idx;
+        app.focus = Focus::Content;
+
+        // Sinks: 10 (speakers) and 20 (headphones)
+        app.audio_sinks.push(crate::backends::AudioDevice {
+            id: 10,
+            name: "speakers".to_string(),
+            description: "Builtin Speakers".to_string(),
+            is_default: true,
+            volume: 0.5,
+            muted: false,
+            is_sink: true,
+            form_factor: "internal".to_string(),
+        });
+        app.audio_sinks.push(crate::backends::AudioDevice {
+            id: 20,
+            name: "headphones".to_string(),
+            description: "USB Headphones".to_string(),
+            is_default: false,
+            volume: 0.7,
+            muted: false,
+            is_sink: true,
+            form_factor: "usb".to_string(),
+        });
+
+        // 1 stream: Spotify playing on device 10 (item index = 2)
+        app.audio_streams.push(crate::backends::AudioStream {
+            id: 99,
+            application_name: "Spotify".to_string(),
+            volume: 0.9,
+            muted: false,
+            is_sink_input: true,
+            device_id: Some(10),
+            device_name: Some("Builtin Speakers".to_string()),
+        });
+
+        app.selected_item = 2; // Selected on Spotify stream
+
+        let (tx, mut rx) = mpsc::channel(10);
+        app.cmd_tx = Some(tx);
+
+        app.handle_key(press(KeyCode::Enter));
+
+        // Should cycle from sink 10 to next sink 20!
+        if let Ok(BackendCommand::MoveAudioStream(stream_id, device_id)) = rx.try_recv() {
+            assert_eq!(stream_id, 99);
+            assert_eq!(device_id, 20);
+        } else {
+            panic!("Expected MoveAudioStream(99, 20) on Enter");
         }
     }
 
