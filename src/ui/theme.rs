@@ -123,10 +123,12 @@ mod tests {
 
     #[test]
     fn test_theme_from_config() {
-        let mut cfg = ThemeConfig::default();
-        cfg.primary_border_color = Some("#334455".to_string());
-        cfg.active_item_highlight = Some("magenta".to_string());
-        cfg.accent_color = Some("#00ff88".to_string());
+        let cfg = ThemeConfig {
+            primary_border_color: Some("#334455".to_string()),
+            active_item_highlight: Some("magenta".to_string()),
+            accent_color: Some("#00ff88".to_string()),
+            ..Default::default()
+        };
 
         let theme = Theme::from_config(&cfg);
         assert_eq!(theme.primary_border, Color::Rgb(0x33, 0x44, 0x55));
