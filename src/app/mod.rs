@@ -4906,6 +4906,39 @@ mod tests {
     }
 
     #[test]
+    fn test_network_vpn_rendering_and_selection() {
+        let mut app = App::new();
+        let net_idx = app.categories.iter().position(|c| c == "Network").unwrap();
+        app.selected_category = net_idx;
+        app.focus = Focus::Content;
+
+        app.vpns.push(crate::backends::VpnConnection {
+            uuid: "wg-tunnel-1".to_string(),
+            name: "mullvad-se".to_string(),
+            vpn_type: "wireguard".to_string(),
+            active: true,
+        });
+
+        app.vpns.push(crate::backends::VpnConnection {
+            uuid: "ovpn-tunnel-2".to_string(),
+            name: "corp-vpn".to_string(),
+            vpn_type: "vpn".to_string(),
+            active: false,
+        });
+
+        let lines = crate::ui::pages::network::render(&app, true);
+        let rendered: String = lines.into_iter().map(|l| format!("{:?}", l)).collect();
+
+        assert!(rendered.contains("VPN & Secure Tunnels"));
+        assert!(rendered.contains("mullvad-se"));
+        assert!(rendered.contains("Type: wireguard • Connected"));
+        assert!(rendered.contains("Disconnect"));
+        assert!(rendered.contains("corp-vpn"));
+        assert!(rendered.contains("Type: vpn • Disconnected"));
+        assert!(rendered.contains("Connect"));
+    }
+
+    #[test]
     fn test_network_password_modal_flow() {
         let mut app = App::new();
         let net_idx = app.categories.iter().position(|c| c == "Network").unwrap();
