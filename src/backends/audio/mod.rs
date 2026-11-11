@@ -76,6 +76,25 @@ impl WpctlBackend {
                         .unwrap_or("Unknown")
                         .to_string();
 
+                    let codec = props["api.bluez5.codec"]
+                        .as_str()
+                        .or_else(|| props["bluetooth.codec"].as_str())
+                        .map(|c| {
+                            match c.to_lowercase().as_str() {
+                                "ldac" => "LDAC",
+                                "aptx_hd" | "aptx-hd" => "aptX-HD",
+                                "aptx" => "aptX",
+                                "aptx_ll" | "aptx-ll" => "aptX-LL",
+                                "aac" => "AAC",
+                                "sbc_xq" | "sbc-xq" => "SBC-XQ",
+                                "sbc" => "SBC",
+                                "opus" => "Opus",
+                                "lc3" => "LC3",
+                                other => other,
+                            }
+                            .to_string()
+                        });
+
                     // Check default
                     let is_default = if is_sink_filter {
                         name == default_sink_name
@@ -107,6 +126,7 @@ impl WpctlBackend {
                         muted,
                         is_sink,
                         form_factor,
+                        codec,
                     });
                 }
             }

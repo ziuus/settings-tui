@@ -28,6 +28,9 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             let is_selected = content_active && current_idx == app.selected_item;
 
             let mut title = dev.description.clone();
+            if let Some(ref c) = dev.codec {
+                title.push_str(&format!(" [{}]", c));
+            }
             if dev.is_default {
                 title.push_str(" • Default");
             } else if is_selected {
@@ -67,6 +70,9 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             let is_selected = content_active && current_idx == app.selected_item;
 
             let mut title = dev.description.clone();
+            if let Some(ref c) = dev.codec {
+                title.push_str(&format!(" [{}]", c));
+            }
             if dev.is_default {
                 title.push_str(" • Default");
             } else if is_selected {

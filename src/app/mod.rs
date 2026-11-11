@@ -5037,6 +5037,7 @@ mod tests {
             muted: false,
             is_sink: true,
             form_factor: "internal".to_string(),
+            codec: None,
         });
         app.audio_sources.push(crate::backends::AudioDevice {
             id: 88,
@@ -5047,6 +5048,7 @@ mod tests {
             muted: false,
             is_sink: false,
             form_factor: "usb".to_string(),
+            codec: None,
         });
 
         // Focus the microphone (item 1)
@@ -5081,6 +5083,7 @@ mod tests {
             muted: false,
             is_sink: true,
             form_factor: "internal".to_string(),
+            codec: None,
         });
         app.audio_sinks.push(crate::backends::AudioDevice {
             id: 20,
@@ -5091,6 +5094,7 @@ mod tests {
             muted: false,
             is_sink: true,
             form_factor: "usb".to_string(),
+            codec: None,
         });
 
         // 1 stream: Spotify playing on device 10 (item index = 2)
@@ -5118,6 +5122,28 @@ mod tests {
         } else {
             panic!("Expected MoveAudioStream(99, 20) on Enter");
         }
+    }
+
+    #[test]
+    fn test_sound_bluetooth_codec_badge() {
+        let mut app = App::new();
+        let sound_idx = app.categories.iter().position(|c| c == "Sound").unwrap();
+        app.selected_category = sound_idx;
+        app.focus = Focus::Content;
+
+        app.audio_sinks.push(crate::backends::AudioDevice {
+            id: 55,
+            name: "bluez_output.WH_1000XM4".to_string(),
+            description: "Sony WH-1000XM4".to_string(),
+            is_default: true,
+            volume: 0.85,
+            muted: false,
+            is_sink: true,
+            form_factor: "headset".to_string(),
+            codec: Some("LDAC".to_string()),
+        });
+
+        assert_eq!(app.audio_sinks[0].codec.as_deref(), Some("LDAC"));
     }
 
     #[test]

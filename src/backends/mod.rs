@@ -24,6 +24,7 @@ pub struct AudioDevice {
     pub muted: bool,
     pub is_sink: bool,
     pub form_factor: String,
+    pub codec: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
