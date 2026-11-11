@@ -201,11 +201,13 @@ pub struct App {
     pub wallpaper_modal: Option<String>, // editing buffer for new hostname
     pub help_modal: bool,
     pub capabilities: crate::platform::PlatformCapabilities,
+    pub theme: crate::ui::theme::Theme,
 }
 
 impl App {
     pub fn new() -> Self {
         Self {
+            theme: crate::ui::theme::Theme::default(),
             should_quit: false,
             sponsor_msg: None,
             focus: Focus::Sidebar,
@@ -2344,6 +2346,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     // Apply configuration if specified or found
     let cfg = crate::config::SettingsConfig::load(args.config.as_deref().map(std::path::Path::new));
+    initial_app.theme = crate::ui::theme::Theme::from_config(&cfg.theme);
 
     let telemetry_cfg = cfg.clone();
     tokio::spawn(async move {

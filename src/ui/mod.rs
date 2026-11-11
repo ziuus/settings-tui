@@ -9,7 +9,10 @@ use ratatui::{
 };
 
 pub mod pages;
+pub mod theme;
 pub mod widgets;
+
+pub use theme::Theme;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.size();
@@ -30,7 +33,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray)),
+                .border_style(Style::default().fg(app.theme.primary_border)),
         );
         f.render_widget(warn, area);
         return;
@@ -67,12 +70,12 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             Span::styled(
                 "Search: ",
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(app.theme.accent)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("{}█", app.search_query),
-                Style::default().fg(Color::White),
+                Style::default().fg(app.theme.text),
             ),
         ])
     } else {
@@ -81,7 +84,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             Span::styled(
                 "⚙ Settings",
                 Style::default()
-                    .fg(Color::White)
+                    .fg(app.theme.text)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" ".repeat(area.width.saturating_sub(30) as usize)),
@@ -112,7 +115,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     (
                         "┃ ",
                         Style::default()
-                            .fg(Color::LightCyan)
+                            .fg(app.theme.active_item)
                             .add_modifier(Modifier::BOLD),
                     )
                 } else {
@@ -165,9 +168,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let divider = Block::default()
         .borders(Borders::LEFT)
         .border_style(Style::default().fg(if sidebar_active {
-            Color::DarkGray
+            app.theme.primary_border
         } else {
-            Color::Gray
+            app.theme.secondary_text
         }));
     f.render_widget(divider, content_layout[1]);
 

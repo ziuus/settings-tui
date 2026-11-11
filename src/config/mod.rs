@@ -1,7 +1,35 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ThemeConfig {
+    #[serde(
+        default,
+        alias = "border_color",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub primary_border_color: Option<String>,
+    #[serde(
+        default,
+        alias = "active_item_color",
+        alias = "active_highlight",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub active_item_highlight: Option<String>,
+    #[serde(default, alias = "accent", skip_serializing_if = "Option::is_none")]
+    pub accent_color: Option<String>,
+    #[serde(default, alias = "text", skip_serializing_if = "Option::is_none")]
+    pub text_color: Option<String>,
+    #[serde(
+        default,
+        alias = "secondary_text",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub secondary_text_color: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct SettingsConfig {
     pub default_category: Option<String>,
     pub confirm_power_actions: bool,
@@ -10,6 +38,8 @@ pub struct SettingsConfig {
     pub telemetry_enabled: bool,
     pub machine_id: String,
     pub sponsor_api_url: Option<String>,
+    #[serde(default)]
+    pub theme: ThemeConfig,
 }
 
 impl Default for SettingsConfig {
@@ -22,6 +52,7 @@ impl Default for SettingsConfig {
             telemetry_enabled: true,
             machine_id: uuid::Uuid::new_v4().to_string(),
             sponsor_api_url: None,
+            theme: ThemeConfig::default(),
         }
     }
 }
@@ -128,5 +159,24 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(cfg, def);
+    }
+
+    #[test]
+    fn test_theme_config_json_deserialization() {
+        let json_data = r##"{
+            "poll_interval_secs": 10,
+            "theme": {
+                "primary_border_color": "#2a2e38",
+                "active_item_highlight": "#38bdf8",
+                "accent_color": "magenta",
+                "text_color": "#ffffff"
+            }
+        }"##;
+
+        let cfg: SettingsConfig = serde_json::from_str(json_data).expect("Must parse JSON config");
+        assert_eq!(cfg.theme.primary_border_color.as_deref(), Some("#2a2e38"));
+        assert_eq!(cfg.theme.active_item_highlight.as_deref(), Some("#38bdf8"));
+        assert_eq!(cfg.theme.accent_color.as_deref(), Some("magenta"));
+        assert_eq!(cfg.theme.text_color.as_deref(), Some("#ffffff"));
     }
 }
