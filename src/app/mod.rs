@@ -2485,20 +2485,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         let audio_backend = crate::backends::audio::WpctlBackend::new();
         let services_backend = crate::backends::systemd::SystemdBackend::new().await.ok();
 
-        let display_backend: Option<Box<dyn DisplayBackend>> = {
-            let is_hyprland = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok();
-            let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
-            if is_hyprland && session_type == "wayland" {
-                crate::backends::display::HyprlandBackend::new()
-                    .ok()
-                    .map(|b| Box::new(b) as Box<dyn DisplayBackend>)
-            } else {
-                Some(
-                    Box::new(crate::backends::display::GenericDisplayBackend::new())
-                        as Box<dyn DisplayBackend>,
-                )
-            }
-        };
+        let display_backend: Option<Box<dyn DisplayBackend>> =
+            Some(crate::backends::display::create_display_backend());
 
         let appearance_backend = crate::backends::appearance::GsettingsBackend::new();
         let apps_backend = crate::backends::applications::DesktopEntryBackend::new();

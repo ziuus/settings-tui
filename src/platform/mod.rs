@@ -49,6 +49,7 @@ impl CapabilityStatus {
 pub struct EnvironmentInfo {
     pub desktop: String,
     pub session_type: String,
+    pub compositor: String,
     pub is_hyprland: bool,
     pub is_systemd: bool,
     pub has_pipewire_socket: bool,
@@ -64,6 +65,20 @@ impl EnvironmentInfo {
         let is_hyprland = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok();
         let is_systemd = Path::new("/run/systemd/system").exists();
 
+        let compositor = if is_hyprland {
+            "Hyprland".to_string()
+        } else if std::env::var("SWAYSOCK").is_ok() {
+            "Sway".to_string()
+        } else if !desktop.is_empty() && desktop != "Unknown" {
+            desktop.clone()
+        } else if session_type == "wayland" {
+            "Generic Wayland".to_string()
+        } else if session_type == "x11" {
+            "X11".to_string()
+        } else {
+            "Linux KMS / Console".to_string()
+        };
+
         let runtime_dir =
             std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/1000".to_string());
         let pipewire_socket = format!("{}/pipewire-0", runtime_dir);
@@ -75,6 +90,7 @@ impl EnvironmentInfo {
         Self {
             desktop,
             session_type,
+            compositor,
             is_hyprland,
             is_systemd,
             has_pipewire_socket,
@@ -154,17 +170,32 @@ impl PlatformCapabilities {
         };
 
         let display = if has_display_backend {
-            CapabilityStatus::Partial(
-                "Resolution and refresh rate mutable via hyprctl (scaling read-only)".into(),
-            )
+            if env.is_hyprland
+                || std::process::Command::new("wlr-randr")
+                    .arg("--help")
+                    .output()
+                    .is_ok()
+                || std::process::Command::new("xrandr")
+                    .arg("--version")
+                    .output()
+                    .is_ok()
+            {
+                CapabilityStatus::Mutable
+            } else if Path::new("/sys/class/drm").exists() {
+                CapabilityStatus::ReadOnly(
+                    "Hardware monitors and modes discovered via Linux DRM sysfs".into(),
+                )
+            } else {
+                CapabilityStatus::Partial("Generic display backend active".into())
+            }
         } else if env.session_type == "wayland" {
             CapabilityStatus::Unsupported(format!(
-                "Display management unsupported under '{}' (Hyprland hyprctl required)",
+                "Display management unsupported under '{}' (wlr-randr or hyprctl required)",
                 env.desktop
             ))
         } else if env.session_type == "x11" {
             CapabilityStatus::Unsupported(
-                "Display management under X11 unsupported (xrandr required)".into(),
+                "Display management under X11 requires xrandr tool".into(),
             )
         } else {
             CapabilityStatus::Unavailable(
@@ -186,7 +217,7 @@ impl PlatformCapabilities {
             CapabilityStatus::Mutable
         } else {
             CapabilityStatus::Unsupported(
-                "Touchpad/Mouse configuration requires Hyprland or GNOME/gsettings".into(),
+                "Touchpad/Mouse configuration requires Hyprland, Sway, GNOME, or libinput".into(),
             )
         };
 

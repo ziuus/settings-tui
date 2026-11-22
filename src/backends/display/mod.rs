@@ -5,6 +5,39 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+pub mod drm;
+pub mod wlr;
+pub mod xrandr;
+
+pub use drm::DrmSysfsBackend;
+pub use wlr::WlrRandrBackend;
+pub use xrandr::XrandrBackend;
+
+pub fn create_display_backend() -> Box<dyn DisplayBackend> {
+    let is_hyprland = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok();
+    let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
+
+    if is_hyprland && session_type == "wayland" {
+        if let Ok(hypr) = HyprlandBackend::new() {
+            return Box::new(hypr);
+        }
+    }
+
+    if let Ok(wlr) = WlrRandrBackend::new() {
+        return Box::new(wlr);
+    }
+
+    if let Ok(x11) = XrandrBackend::new() {
+        return Box::new(x11);
+    }
+
+    if let Ok(drm) = DrmSysfsBackend::new() {
+        return Box::new(drm);
+    }
+
+    Box::new(GenericDisplayBackend::new())
+}
+
 pub struct HyprlandBackend;
 
 impl HyprlandBackend {
@@ -166,7 +199,8 @@ impl GenericDisplayBackend {
 #[async_trait]
 impl DisplayBackend for GenericDisplayBackend {
     async fn get_monitors(&self) -> Result<Vec<Monitor>> {
-        Ok(Vec::new())
+        let monitors = DrmSysfsBackend::scan_drm_monitors(Path::new("/sys/class/drm"));
+        Ok(monitors)
     }
 
     async fn set_resolution(
@@ -177,13 +211,13 @@ impl DisplayBackend for GenericDisplayBackend {
         _refresh: f64,
     ) -> Result<()> {
         Err(anyhow::anyhow!(
-            "Resolution switching requires Hyprland compositor"
+            "Resolution switching requires an active window manager or compositor (wlr-randr, xrandr, or Hyprland)"
         ))
     }
 
     async fn set_scale(&self, _name: &str, _scale: f64) -> Result<()> {
         Err(anyhow::anyhow!(
-            "Display scaling is not supported on this generic backend."
+            "Display scaling requires an active compositor (wlr-randr, xrandr, or Hyprland)"
         ))
     }
     async fn set_monitor_mode(
@@ -192,7 +226,9 @@ impl DisplayBackend for GenericDisplayBackend {
         _mode: &str,
         _mirror_target: Option<&str>,
     ) -> Result<()> {
-        Err(anyhow::anyhow!("Not supported on generic backend"))
+        Err(anyhow::anyhow!(
+            "Monitor configuration requires an active compositor"
+        ))
     }
 
     async fn get_brightness(&self) -> Result<Option<u32>> {

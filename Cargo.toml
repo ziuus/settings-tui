@@ -2,12 +2,12 @@
 name = "settings-tui"
 version = "0.1.23"
 edition = "2021"
+default-run = "settings-tui"
 description = "A hyper-lightweight (near 0% CPU, <9MB) universal Linux Settings Center for the terminal."
 license = "MIT"
 repository = "https://github.com/ziuus/settings-tui"
-homepage = "https://github.com/ziuus/settings-tui"
 readme = "README.md"
-keywords = ["tui", "ratatui", "settings", "linux", "hyprland"]
+keywords = ["tui", "ratatui", "settings", "linux", "wayland"]
 categories = ["command-line-utilities"]
 exclude = [
     "bin/*",
@@ -27,7 +27,6 @@ serde_json = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-thiserror = "1.0"
 anyhow = "1.0"
 futures = "0.3"
 sysinfo = "0.30"

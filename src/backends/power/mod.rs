@@ -80,17 +80,33 @@ impl PowerBackend for UPowerBackend {
         }
 
         let mut charge_limit = None;
-        if let Ok(paths) = std::fs::read_dir("/sys/class/power_supply/") {
-            for path in paths.flatten() {
-                if let Some(name) = path.file_name().to_str() {
-                    if name.starts_with("BAT") {
-                        let mut limit_path = path.path();
-                        limit_path.push("charge_control_end_threshold");
-                        if let Ok(limit_str) = std::fs::read_to_string(&limit_path) {
-                            if let Ok(limit) = limit_str.trim().parse::<u8>() {
+        if let Some((path, kind)) = find_battery_threshold_interface() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                match kind {
+                    BatteryThresholdKind::StandardKernel => {
+                        if let Ok(limit) = content.trim().parse::<u8>() {
+                            charge_limit = Some(limit);
+                        }
+                    }
+                    BatteryThresholdKind::LenovoIdeapad => {
+                        if content.trim() == "1" {
+                            charge_limit = Some(80);
+                        } else if content.trim() == "0" {
+                            charge_limit = Some(100);
+                        }
+                    }
+                    BatteryThresholdKind::Huawei => {
+                        if let Some(high) = content.split_whitespace().last() {
+                            if let Ok(limit) = high.parse::<u8>() {
                                 charge_limit = Some(limit);
-                                break;
                             }
+                        }
+                    }
+                    BatteryThresholdKind::Samsung => {
+                        if content.trim() == "1" {
+                            charge_limit = Some(80);
+                        } else if content.trim() == "0" {
+                            charge_limit = Some(100);
                         }
                     }
                 }
@@ -249,40 +265,44 @@ impl PowerBackend for UPowerBackend {
     }
 
     async fn set_charge_limit(&self, limit: u8) -> Result<()> {
-        // Try to find the battery
-        let mut bat_path = None;
-        if let Ok(paths) = std::fs::read_dir("/sys/class/power_supply/") {
-            for path in paths.flatten() {
-                if let Some(name) = path.file_name().to_str() {
-                    if name.starts_with("BAT") {
-                        let mut p = path.path();
-                        p.push("charge_control_end_threshold");
-                        if p.exists() {
-                            bat_path = Some(p);
-                            break;
-                        }
+        if let Some((path, kind)) = find_battery_threshold_interface() {
+            let write_val = match kind {
+                BatteryThresholdKind::StandardKernel => limit.to_string(),
+                BatteryThresholdKind::LenovoIdeapad => {
+                    if limit <= 80 {
+                        "1".to_string()
+                    } else {
+                        "0".to_string()
                     }
                 }
-            }
-        }
-        if let Some(p) = bat_path {
-            // We need pkexec or Polkit because sysfs is root-owned
+                BatteryThresholdKind::Huawei => {
+                    format!("0 {}", limit)
+                }
+                BatteryThresholdKind::Samsung => {
+                    if limit <= 80 {
+                        "1".to_string()
+                    } else {
+                        "0".to_string()
+                    }
+                }
+            };
+
             let status = std::process::Command::new("pkexec")
                 .arg("sh")
                 .arg("-c")
-                .arg(format!("echo {} > {}", limit, p.display()))
+                .arg(format!("echo '{}' > {}", write_val, path.display()))
                 .status()?;
             if !status.success() {
                 return Err(anyhow::anyhow!(
                     "Failed to set charge limit (authentication failed or permission denied)"
                 ));
             }
+            Ok(())
         } else {
-            return Err(anyhow::anyhow!(
+            Err(anyhow::anyhow!(
                 "Battery charge limit is not supported on this device"
-            ));
+            ))
         }
-        Ok(())
     }
     async fn set_power_profile(&self, profile: &str) -> Result<()> {
         let profiles = PowerProfilesProxy::new(&self.connection).await?;
@@ -304,7 +324,14 @@ impl PowerBackend for UPowerBackend {
     }
 
     async fn set_idle_delay(&self, seconds: u32) -> Result<()> {
-        let _ = set_hypridle_timeout("dpms", seconds, "hyprctl dispatch dpms off");
+        if is_hyprland_running() || is_process_running("hypridle") {
+            let _ = set_hypridle_timeout("dpms", seconds, "hyprctl dispatch dpms off");
+        }
+        if binary_exists("xset") && std::env::var_os("DISPLAY").is_some() {
+            let _ = std::process::Command::new("xset")
+                .args(["s", &seconds.to_string(), &seconds.to_string()])
+                .output();
+        }
         let _ = std::process::Command::new("gsettings")
             .args([
                 "set",
@@ -317,23 +344,25 @@ impl PowerBackend for UPowerBackend {
     }
 
     async fn set_lock_delay(&self, seconds: u32) -> Result<()> {
-        let lock_cmd = if let Some(path) = get_hypridle_conf_path() {
-            if let Ok(c) = std::fs::read_to_string(&path) {
-                c.lines()
-                    .find(|l| l.trim().starts_with("on-timeout") && l.contains("hyprlock"))
-                    .and_then(|l| l.split('=').nth(1))
-                    .map(|s| s.trim().to_string())
-                    .unwrap_or_else(|| "hyprlock".to_string())
+        if is_hyprland_running() || is_process_running("hypridle") {
+            let lock_cmd = if let Some(path) = get_hypridle_conf_path() {
+                if let Ok(c) = std::fs::read_to_string(&path) {
+                    c.lines()
+                        .find(|l| l.trim().starts_with("on-timeout") && l.contains("hyprlock"))
+                        .and_then(|l| l.split('=').nth(1))
+                        .map(|s| s.trim().to_string())
+                        .unwrap_or_else(|| "hyprlock".to_string())
+                } else {
+                    "hyprlock".to_string()
+                }
             } else {
                 "hyprlock".to_string()
-            }
-        } else {
-            "hyprlock".to_string()
-        };
-        let _ = set_hypridle_timeout("hyprlock", seconds, &lock_cmd);
-        let _ = std::process::Command::new("systemctl")
-            .args(["--user", "restart", "hypridle.service"])
-            .status();
+            };
+            let _ = set_hypridle_timeout("hyprlock", seconds, &lock_cmd);
+            let _ = std::process::Command::new("systemctl")
+                .args(["--user", "restart", "hypridle.service"])
+                .status();
+        }
 
         let _ = std::process::Command::new("gsettings")
             .args([
@@ -347,10 +376,12 @@ impl PowerBackend for UPowerBackend {
     }
 
     async fn set_suspend_delay(&self, seconds: u32) -> Result<()> {
-        let _ = set_hypridle_timeout("suspend", seconds, "systemctl suspend");
-        let _ = std::process::Command::new("systemctl")
-            .args(["--user", "restart", "hypridle.service"])
-            .status();
+        if is_hyprland_running() || is_process_running("hypridle") {
+            let _ = set_hypridle_timeout("suspend", seconds, "systemctl suspend");
+            let _ = std::process::Command::new("systemctl")
+                .args(["--user", "restart", "hypridle.service"])
+                .status();
+        }
 
         let content = if seconds == 0 {
             "[Login]\nIdleAction=ignore\n".to_string()
@@ -399,6 +430,70 @@ impl PowerBackend for UPowerBackend {
     async fn set_stay_awake(&self, enabled: bool) -> Result<()> {
         apply_stay_awake(enabled)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BatteryThresholdKind {
+    StandardKernel,
+    LenovoIdeapad,
+    Huawei,
+    Samsung,
+}
+
+pub fn find_battery_threshold_interface() -> Option<(std::path::PathBuf, BatteryThresholdKind)> {
+    // 1. Standard Linux 5.4+ kernel driver: check all power supplies of type Battery
+    if let Ok(entries) = std::fs::read_dir("/sys/class/power_supply/") {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let type_path = path.join("type");
+            let is_battery = std::fs::read_to_string(&type_path)
+                .map(|t| t.trim().eq_ignore_ascii_case("battery"))
+                .unwrap_or(false)
+                || entry.file_name().to_string_lossy().starts_with("BAT");
+
+            if is_battery {
+                let limit_path = path.join("charge_control_end_threshold");
+                if limit_path.exists() {
+                    return Some((limit_path, BatteryThresholdKind::StandardKernel));
+                }
+            }
+        }
+    }
+
+    // 2. Lenovo IdeaPad ACPI conservation mode
+    if let Ok(entries) = std::fs::read_dir("/sys/bus/platform/drivers/ideapad_acpi") {
+        for entry in entries.flatten() {
+            let mode_path = entry.path().join("conservation_mode");
+            if mode_path.exists() {
+                return Some((mode_path, BatteryThresholdKind::LenovoIdeapad));
+            }
+        }
+    }
+
+    // 3. Huawei WMI charge thresholds
+    let huawei_path =
+        std::path::PathBuf::from("/sys/devices/platform/huawei-wmi/charge_thresholds");
+    if huawei_path.exists() {
+        return Some((huawei_path, BatteryThresholdKind::Huawei));
+    }
+
+    // 4. Samsung battery life extender
+    let samsung_path =
+        std::path::PathBuf::from("/sys/devices/platform/samsung/battery_life_extender");
+    if samsung_path.exists() {
+        return Some((samsung_path, BatteryThresholdKind::Samsung));
+    }
+
+    None
+}
+
+fn is_hyprland_running() -> bool {
+    std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some()
+        || std::process::Command::new("hyprctl")
+            .arg("version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
 }
 
 fn get_state_dir() -> std::path::PathBuf {
@@ -723,5 +818,18 @@ mod tests {
     fn test_stay_awake_state_toggle() {
         // Turning off should succeed and clean up markers cleanly
         assert!(apply_stay_awake(false).is_ok());
+    }
+
+    #[test]
+    fn test_battery_threshold_kinds() {
+        assert_eq!(
+            BatteryThresholdKind::StandardKernel,
+            BatteryThresholdKind::StandardKernel
+        );
+        assert_ne!(
+            BatteryThresholdKind::StandardKernel,
+            BatteryThresholdKind::LenovoIdeapad
+        );
+        assert_ne!(BatteryThresholdKind::Huawei, BatteryThresholdKind::Samsung);
     }
 }

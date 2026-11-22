@@ -103,29 +103,27 @@ pub async fn run_main() -> Result<(), Box<dyn Error>> {
                 .arg("--version")
                 .output()
                 .is_ok(),
-            std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok(),
+            std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok()
+                || std::process::Command::new("wlr-randr")
+                    .arg("--help")
+                    .output()
+                    .is_ok()
+                || std::process::Command::new("xrandr")
+                    .arg("--version")
+                    .output()
+                    .is_ok()
+                || std::path::Path::new("/sys/class/drm").exists(),
             std::process::Command::new("gsettings")
                 .arg("help")
                 .output()
                 .is_ok(),
             std::path::Path::new("/run/systemd/system").exists(),
-            std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok()
-                || std::process::Command::new("gsettings")
-                    .arg("help")
-                    .output()
-                    .is_ok(),
+            true,
         );
 
         println!("  Desktop:       {}", caps.env.desktop);
         println!("  Session Type:  {}", caps.env.session_type);
-        println!(
-            "  Compositor:    {}",
-            if caps.env.is_hyprland {
-                "Hyprland"
-            } else {
-                "Other / Unknown"
-            }
-        );
+        println!("  Compositor:    {}", caps.env.compositor);
         println!(
             "  Init System:   {}",
             if caps.env.is_systemd {

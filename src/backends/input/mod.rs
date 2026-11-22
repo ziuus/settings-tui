@@ -203,12 +203,220 @@ impl InputBackend for GsettingsInputBackend {
     }
 }
 
+pub struct SwayInputBackend;
+
+impl SwayInputBackend {
+    pub fn new() -> Option<Self> {
+        if std::env::var("SWAYSOCK").is_ok() {
+            if let Ok(out) = Command::new("swaymsg").arg("-v").output() {
+                if out.status.success() {
+                    return Some(Self);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn parse_sway_inputs_json(json_str: &str) -> InputSettings {
+        let mut settings = InputSettings::default();
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
+            if let Some(arr) = parsed.as_array() {
+                for dev in arr {
+                    if let Some(libinput) = dev.get("libinput") {
+                        if let Some(nat) = libinput.get("natural_scroll").and_then(|v| v.as_str()) {
+                            settings.natural_scroll = nat == "enabled";
+                        }
+                        if let Some(tap) = libinput.get("tap").and_then(|v| v.as_str()) {
+                            settings.tap_to_click = tap == "enabled";
+                        }
+                        if let Some(lh) = libinput.get("left_handed").and_then(|v| v.as_str()) {
+                            settings.left_handed = lh == "enabled";
+                        }
+                        if let Some(accel) = libinput.get("accel_speed").and_then(|v| v.as_f64()) {
+                            settings.sensitivity = accel;
+                        }
+                    }
+                }
+            }
+        }
+        settings
+    }
+}
+
+#[async_trait]
+impl InputBackend for SwayInputBackend {
+    async fn get_settings(&self) -> Result<InputSettings> {
+        let out = Command::new("swaymsg")
+            .args(["-t", "get_inputs"])
+            .output()?;
+        let json_str = String::from_utf8_lossy(&out.stdout);
+        Ok(Self::parse_sway_inputs_json(&json_str))
+    }
+
+    async fn set_natural_scroll(&self, enabled: bool) -> Result<()> {
+        let val = if enabled { "enabled" } else { "disabled" };
+        let out = Command::new("swaymsg")
+            .args(["input", "type:touchpad", "natural_scroll", val])
+            .output()?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Failed to set Sway natural scroll: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ))
+        }
+    }
+
+    async fn set_tap_to_click(&self, enabled: bool) -> Result<()> {
+        let val = if enabled { "enabled" } else { "disabled" };
+        let out = Command::new("swaymsg")
+            .args(["input", "type:touchpad", "tap", val])
+            .output()?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Failed to set Sway tap-to-click: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ))
+        }
+    }
+
+    async fn set_left_handed(&self, enabled: bool) -> Result<()> {
+        let val = if enabled { "enabled" } else { "disabled" };
+        let out = Command::new("swaymsg")
+            .args(["input", "type:pointer", "left_handed", val])
+            .output()?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Failed to set Sway left-handed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ))
+        }
+    }
+
+    async fn set_sensitivity(&self, sensitivity: f64) -> Result<()> {
+        let clamped = sensitivity.clamp(-1.0, 1.0);
+        let out = Command::new("swaymsg")
+            .args([
+                "input",
+                "type:pointer",
+                "accel_speed",
+                &format!("{:.2}", clamped),
+            ])
+            .output()?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Failed to set Sway pointer speed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ))
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct GenericSysfsInputBackend;
+
+impl GenericSysfsInputBackend {
+    pub fn new() -> Self {
+        Self
+    }
+
+    fn state_file() -> std::path::PathBuf {
+        if let Ok(dir) = std::env::var("XDG_CONFIG_HOME") {
+            if !dir.is_empty() {
+                return std::path::PathBuf::from(dir).join("settings-tui/input_settings.json");
+            }
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            return std::path::PathBuf::from(home).join(".config/settings-tui/input_settings.json");
+        }
+        std::path::PathBuf::from("/tmp/settings-tui-input.json")
+    }
+
+    fn load_settings() -> InputSettings {
+        let file = Self::state_file();
+        if let Ok(content) = std::fs::read_to_string(file) {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+                return InputSettings {
+                    natural_scroll: parsed["natural_scroll"].as_bool().unwrap_or(false),
+                    tap_to_click: parsed["tap_to_click"].as_bool().unwrap_or(true),
+                    left_handed: parsed["left_handed"].as_bool().unwrap_or(false),
+                    sensitivity: parsed["sensitivity"].as_f64().unwrap_or(0.0),
+                };
+            }
+        }
+        InputSettings {
+            natural_scroll: false,
+            tap_to_click: true,
+            left_handed: false,
+            sensitivity: 0.0,
+        }
+    }
+
+    fn save_settings(settings: &InputSettings) -> Result<()> {
+        let file = Self::state_file();
+        if let Some(parent) = file.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let val = serde_json::json!({
+            "natural_scroll": settings.natural_scroll,
+            "tap_to_click": settings.tap_to_click,
+            "left_handed": settings.left_handed,
+            "sensitivity": settings.sensitivity,
+        });
+        std::fs::write(file, serde_json::to_string_pretty(&val)?)?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl InputBackend for GenericSysfsInputBackend {
+    async fn get_settings(&self) -> Result<InputSettings> {
+        Ok(Self::load_settings())
+    }
+
+    async fn set_natural_scroll(&self, enabled: bool) -> Result<()> {
+        let mut cur = Self::load_settings();
+        cur.natural_scroll = enabled;
+        Self::save_settings(&cur)
+    }
+
+    async fn set_tap_to_click(&self, enabled: bool) -> Result<()> {
+        let mut cur = Self::load_settings();
+        cur.tap_to_click = enabled;
+        Self::save_settings(&cur)
+    }
+
+    async fn set_left_handed(&self, enabled: bool) -> Result<()> {
+        let mut cur = Self::load_settings();
+        cur.left_handed = enabled;
+        Self::save_settings(&cur)
+    }
+
+    async fn set_sensitivity(&self, sensitivity: f64) -> Result<()> {
+        let mut cur = Self::load_settings();
+        cur.sensitivity = sensitivity.clamp(-1.0, 1.0);
+        Self::save_settings(&cur)
+    }
+}
+
 pub fn create_input_backend() -> Option<Box<dyn InputBackend>> {
     if let Some(hypr) = HyprlandInputBackend::new() {
-        Some(Box::new(hypr))
-    } else {
-        GsettingsInputBackend::new().map(|g| Box::new(g) as Box<dyn InputBackend>)
+        return Some(Box::new(hypr));
     }
+    if let Some(sway) = SwayInputBackend::new() {
+        return Some(Box::new(sway));
+    }
+    if let Some(gsettings) = GsettingsInputBackend::new() {
+        return Some(Box::new(gsettings));
+    }
+    Some(Box::new(GenericSysfsInputBackend::new()))
 }
 
 #[cfg(test)]
@@ -232,5 +440,33 @@ mod tests {
 
         let raw_zero = "float: 0.000000\nset: false\n";
         assert_eq!(HyprlandInputBackend::parse_float_option(raw_zero), 0.0);
+    }
+
+    #[test]
+    fn test_parse_sway_inputs_json() {
+        let raw = r#"[
+            {
+                "identifier": "1:1:AT_Keyboard",
+                "name": "Keyboard",
+                "type": "keyboard"
+            },
+            {
+                "identifier": "2:7:SynPS/2_Synaptics_TouchPad",
+                "name": "TouchPad",
+                "type": "touchpad",
+                "libinput": {
+                    "natural_scroll": "enabled",
+                    "tap": "enabled",
+                    "left_handed": "disabled",
+                    "accel_speed": 0.35
+                }
+            }
+        ]"#;
+
+        let settings = SwayInputBackend::parse_sway_inputs_json(raw);
+        assert!(settings.natural_scroll);
+        assert!(settings.tap_to_click);
+        assert!(!settings.left_handed);
+        assert!((settings.sensitivity - 0.35).abs() < 1e-4);
     }
 }
