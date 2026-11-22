@@ -11,36 +11,132 @@ pub struct RealSystemBackend {
     updates_cache: std::sync::Arc<std::sync::Mutex<Option<usize>>>,
 }
 
+pub fn parse_update_count(manager: &str, output: &str) -> usize {
+    match manager {
+        "checkupdates" | "pacman" => output.lines().filter(|l| !l.trim().is_empty()).count(),
+        "apt" | "apt-get" => output.lines().filter(|l| l.starts_with("Inst ")).count(),
+        "dnf" => output
+            .lines()
+            .filter(|l| {
+                let t = l.trim();
+                !t.is_empty()
+                    && !t.starts_with("Last metadata")
+                    && !t.starts_with("Obsoleting")
+                    && !t.starts_with("Security:")
+            })
+            .count(),
+        "xbps" | "xbps-install" => output
+            .lines()
+            .filter(|l| l.contains("update to ") || l.contains("install "))
+            .count(),
+        "apk" => output.lines().filter(|l| l.contains(" < ")).count(),
+        "zypper" => output
+            .lines()
+            .filter(|l| {
+                let t = l.trim();
+                t.starts_with('v') || (t.contains('|') && !t.contains("Current Version"))
+            })
+            .count(),
+        "nix" | "nix-env" => output
+            .lines()
+            .filter(|l| l.contains("would upgrade") || l.contains(" < "))
+            .count(),
+        _ => output.lines().filter(|l| !l.trim().is_empty()).count(),
+    }
+}
+
 async fn check_updates() -> Option<usize> {
-    if std::path::Path::new("/usr/bin/checkupdates").exists() {
+    // 1. Arch Linux: checkupdates -> pacman -Qu
+    if crate::platform::binary_exists("checkupdates") {
         if let Ok(output) = tokio::process::Command::new("checkupdates").output().await {
             let out = String::from_utf8_lossy(&output.stdout);
-            let count = out.lines().filter(|l| !l.trim().is_empty()).count();
-            return Some(count);
+            return Some(parse_update_count("checkupdates", &out));
+        }
+    } else if crate::platform::binary_exists("pacman") {
+        if let Ok(output) = tokio::process::Command::new("pacman")
+            .arg("-Qu")
+            .output()
+            .await
+        {
+            let out = String::from_utf8_lossy(&output.stdout);
+            return Some(parse_update_count("pacman", &out));
         }
     }
-    if std::path::Path::new("/usr/bin/apt-get").exists() {
+
+    // 2. Debian / Ubuntu: apt-get
+    if crate::platform::binary_exists("apt-get") {
         if let Ok(output) = tokio::process::Command::new("apt-get")
             .args(["-s", "upgrade"])
             .output()
             .await
         {
             let out = String::from_utf8_lossy(&output.stdout);
-            let count = out.lines().filter(|l| l.starts_with("Inst ")).count();
-            return Some(count);
+            return Some(parse_update_count("apt", &out));
         }
     }
-    if std::path::Path::new("/usr/bin/dnf").exists() {
+
+    // 3. Fedora / RHEL: dnf
+    if crate::platform::binary_exists("dnf") {
         if let Ok(output) = tokio::process::Command::new("dnf")
             .args(["check-update", "-q"])
             .output()
             .await
         {
             let out = String::from_utf8_lossy(&output.stdout);
-            let count = out.lines().filter(|l| !l.trim().is_empty()).count();
-            return Some(count);
+            return Some(parse_update_count("dnf", &out));
         }
     }
+
+    // 4. Void Linux: xbps-install
+    if crate::platform::binary_exists("xbps-install") {
+        if let Ok(output) = tokio::process::Command::new("xbps-install")
+            .args(["-un"])
+            .output()
+            .await
+        {
+            let out = String::from_utf8_lossy(&output.stdout);
+            return Some(parse_update_count("xbps", &out));
+        }
+    }
+
+    // 5. Alpine Linux: apk
+    if crate::platform::binary_exists("apk") {
+        if let Ok(output) = tokio::process::Command::new("apk")
+            .args(["version", "-l", "<"])
+            .output()
+            .await
+        {
+            let out = String::from_utf8_lossy(&output.stdout);
+            return Some(parse_update_count("apk", &out));
+        }
+    }
+
+    // 6. openSUSE: zypper
+    if crate::platform::binary_exists("zypper") {
+        if let Ok(output) = tokio::process::Command::new("zypper")
+            .args(["--non-interactive", "list-updates", "-q"])
+            .output()
+            .await
+        {
+            let out = String::from_utf8_lossy(&output.stdout);
+            return Some(parse_update_count("zypper", &out));
+        }
+    }
+
+    // 7. Nix / NixOS: nix-env
+    if crate::platform::binary_exists("nix-env") {
+        if let Ok(output) = tokio::process::Command::new("nix-env")
+            .args(["-u", "--dry-run"])
+            .output()
+            .await
+        {
+            let out = String::from_utf8_lossy(&output.stdout);
+            return Some(parse_update_count("nix", &out));
+        }
+    } else if crate::platform::binary_exists("nix") {
+        return Some(0);
+    }
+
     None
 }
 
@@ -272,7 +368,8 @@ impl SystemBackend for RealSystemBackend {
                     Ok(_) => return Ok(()),
                     Err(zbus_err) => {
                         let err_str = zbus_err.to_string();
-                        if !err_str.contains("UnknownMethod") {
+                        if !err_str.contains("UnknownMethod") && !err_str.contains("ServiceUnknown")
+                        {
                             return Err(anyhow!(
                                 "System logind rejected '{}': {}",
                                 action,
@@ -284,20 +381,111 @@ impl SystemBackend for RealSystemBackend {
             }
         }
 
-        // Fallback to systemctl command execution with full stderr diagnostics
-        let output = std::process::Command::new("systemctl").arg(cmd).output()?;
-
-        if output.status.success() {
-            Ok(())
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let msg = stderr
-                .lines()
-                .next()
-                .unwrap_or("Failed to execute power action")
-                .trim();
-            Err(anyhow!("{}", msg))
+        // 1. Fallback to loginctl CLI
+        if crate::platform::binary_exists("loginctl") {
+            if let Ok(output) = std::process::Command::new("loginctl").arg(cmd).output() {
+                if output.status.success() {
+                    return Ok(());
+                }
+            }
         }
+
+        // 2. Fallback to systemctl CLI
+        if crate::platform::binary_exists("systemctl") {
+            if let Ok(output) = std::process::Command::new("systemctl").arg(cmd).output() {
+                if output.status.success() {
+                    return Ok(());
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    if stderr.contains("Access denied")
+                        || stderr.contains("interactive authentication")
+                    {
+                        let msg = stderr
+                            .lines()
+                            .next()
+                            .unwrap_or("Failed to execute power action")
+                            .trim();
+                        return Err(anyhow!("{}", msg));
+                    }
+                }
+            }
+        }
+
+        // 3. Fallback to native CLI tools
+        match cmd {
+            "poweroff" => {
+                if crate::platform::binary_exists("shutdown") {
+                    if let Ok(out) = std::process::Command::new("shutdown")
+                        .args(["-h", "now"])
+                        .output()
+                    {
+                        if out.status.success() {
+                            return Ok(());
+                        }
+                    }
+                }
+                if crate::platform::binary_exists("poweroff") {
+                    if let Ok(out) = std::process::Command::new("poweroff").output() {
+                        if out.status.success() {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+            "reboot" => {
+                if crate::platform::binary_exists("shutdown") {
+                    if let Ok(out) = std::process::Command::new("shutdown")
+                        .args(["-r", "now"])
+                        .output()
+                    {
+                        if out.status.success() {
+                            return Ok(());
+                        }
+                    }
+                }
+                if crate::platform::binary_exists("reboot") {
+                    if let Ok(out) = std::process::Command::new("reboot").output() {
+                        if out.status.success() {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+            "suspend" => {
+                if crate::platform::binary_exists("zzz") {
+                    if let Ok(out) = std::process::Command::new("zzz").output() {
+                        if out.status.success() {
+                            return Ok(());
+                        }
+                    }
+                }
+                if std::path::Path::new("/sys/power/state").exists()
+                    && std::fs::write("/sys/power/state", "mem").is_ok()
+                {
+                    return Ok(());
+                }
+            }
+            "hibernate" => {
+                if crate::platform::binary_exists("ZZZ") {
+                    if let Ok(out) = std::process::Command::new("ZZZ").output() {
+                        if out.status.success() {
+                            return Ok(());
+                        }
+                    }
+                }
+                if std::path::Path::new("/sys/power/state").exists()
+                    && std::fs::write("/sys/power/state", "disk").is_ok()
+                {
+                    return Ok(());
+                }
+            }
+            _ => {}
+        }
+
+        Err(anyhow!(
+            "Failed to execute power action '{}': No supported logind, systemctl, or CLI fallback succeeded.",
+            action
+        ))
     }
 }
 
@@ -352,5 +540,38 @@ mod tests {
         assert!(backend.set_hostname("bad;rm -rf /").await.is_err());
         assert!(backend.set_hostname("bad$(reboot)").await.is_err());
         assert!(backend.set_hostname(&"a".repeat(65)).await.is_err());
+    }
+
+    #[test]
+    fn test_parse_update_count_all_distros() {
+        // 1. Arch: checkupdates / pacman -Qu
+        let arch_out = "glibc 2.38-7 -> 2.39-1\nlinux 6.7.4 -> 6.7.5\n";
+        assert_eq!(parse_update_count("checkupdates", arch_out), 2);
+        assert_eq!(parse_update_count("pacman", arch_out), 2);
+
+        // 2. Debian / Ubuntu: apt-get -s upgrade
+        let debian_out = "Inst libssl3 [3.0.11-1] (3.0.13-1 Ubuntu:22.04/jammy-updates [amd64])\nConf libssl3 (3.0.13-1 Ubuntu:22.04/jammy-updates [amd64])\n";
+        assert_eq!(parse_update_count("apt", debian_out), 1);
+
+        // 3. Fedora: dnf check-update
+        let dnf_out = "Last metadata expiration check: 0:42:15 ago\nsystemd.x86_64 254.9-1.fc39 updates\nkernel.x86_64 6.7.4-200.fc39 updates\n";
+        assert_eq!(parse_update_count("dnf", dnf_out), 2);
+
+        // 4. Void: xbps-install -un
+        let void_out = "linux6.6-6.6.17_1 update to 6.6.18_1 (x86_64)\nfirefox-122.0.1_1 update to 123.0_1 (x86_64)\n";
+        assert_eq!(parse_update_count("xbps", void_out), 2);
+
+        // 5. Alpine: apk version -l '<'
+        let apk_out = "Installed:             Available:\nmusl-1.2.4-r1        < 1.2.4-r2\nbusybox-1.36.1-r4    < 1.36.1-r5\n";
+        assert_eq!(parse_update_count("apk", apk_out), 2);
+
+        // 6. openSUSE: zypper list-updates -q
+        let zypper_out =
+            "v | openSUSE-Tumbleweed | kernel-default | 6.7.4-1.1 | 6.7.5-1.1 | x86_64\n";
+        assert_eq!(parse_update_count("zypper", zypper_out), 1);
+
+        // 7. Nix: nix-env -u --dry-run
+        let nix_out = "(dry run) would upgrade 'ripgrep-14.1.0' to 'ripgrep-14.1.1'\n";
+        assert_eq!(parse_update_count("nix", nix_out), 1);
     }
 }

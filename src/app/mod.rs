@@ -12,7 +12,7 @@ use crate::backends::{
     system::RealSystemBackend, AppEntry, AppearanceBackend, AppearanceInfo, ApplicationsBackend,
     AudioBackend, AudioDevice, BluetoothBackend, BluetoothDevice, DefaultAppsInfo, DisplayBackend,
     InputSettings, Monitor, Network, NetworkBackend, PowerBackend, PowerInfo, ServiceInfo,
-    ServicesBackend, SystemBackend, SystemInfo, VpnConnection,
+    SystemBackend, SystemInfo, VpnConnection,
 };
 use crate::ui;
 use crate::Args;
@@ -290,6 +290,45 @@ impl App {
                 .filter(|c| c.to_lowercase().contains(&q))
                 .cloned()
                 .collect()
+        }
+    }
+
+    pub fn adjust_sound_volume(&mut self, increase: bool, shift: bool) {
+        let sinks_len = self.audio_sinks.len();
+        let sources_len = self.audio_sources.len();
+        let streams_len = self.audio_streams.len();
+
+        let (id, current_vol) = if self.selected_item < sinks_len {
+            let dev = &self.audio_sinks[self.selected_item];
+            (dev.id, dev.volume)
+        } else if self.selected_item < sinks_len + sources_len {
+            let dev = &self.audio_sources[self.selected_item - sinks_len];
+            (dev.id, dev.volume)
+        } else if self.selected_item < sinks_len + sources_len + streams_len {
+            let stream = &self.audio_streams[self.selected_item - sinks_len - sources_len];
+            (stream.id, stream.volume)
+        } else {
+            (0, 0.0)
+        };
+
+        if id != 0 {
+            let step = if shift { 0.01 } else { 0.05 };
+            let new_vol = if increase {
+                current_vol + step
+            } else {
+                current_vol - step
+            };
+            let new_vol = new_vol.clamp(0.0, 1.0);
+            if self.selected_item < sinks_len {
+                self.audio_sinks[self.selected_item].volume = new_vol;
+            } else if self.selected_item < sinks_len + sources_len {
+                self.audio_sources[self.selected_item - sinks_len].volume = new_vol;
+            } else if self.selected_item < sinks_len + sources_len + streams_len {
+                self.audio_streams[self.selected_item - sinks_len - sources_len].volume = new_vol;
+            }
+            if let Some(tx) = &self.cmd_tx {
+                let _ = tx.try_send(BackendCommand::SetAudioVolume(id, new_vol));
+            }
         }
     }
 
@@ -1447,6 +1486,11 @@ impl App {
                                     let _ = tx.try_send(BackendCommand::CycleIconTheme(true));
                                 }
                             }
+                        } else if cat == "Sound" {
+                            let shift = key
+                                .modifiers
+                                .contains(crossterm::event::KeyModifiers::SHIFT);
+                            self.adjust_sound_volume(true, shift);
                         }
                     }
                 }
@@ -1619,6 +1663,14 @@ impl App {
                                 }
                                 return;
                             }
+                        } else if (key.code == KeyCode::Left || key.code == KeyCode::Char('h'))
+                            && cat == "Sound"
+                        {
+                            let shift = key
+                                .modifiers
+                                .contains(crossterm::event::KeyModifiers::SHIFT);
+                            self.adjust_sound_volume(false, shift);
+                            return;
                         }
                     }
                     self.focus = Focus::Sidebar;
@@ -2136,44 +2188,10 @@ impl App {
                 if self.focus == Focus::Content {
                     if let Some(cat) = vis.get(self.selected_category) {
                         if cat == "Sound" {
-                            let sinks_len = self.audio_sinks.len();
-                            let sources_len = self.audio_sources.len();
-                            let streams_len = self.audio_streams.len();
-
-                            let (id, current_vol) = if self.selected_item < sinks_len {
-                                let dev = &self.audio_sinks[self.selected_item];
-                                (dev.id, dev.volume)
-                            } else if self.selected_item < sinks_len + sources_len {
-                                let dev = &self.audio_sources[self.selected_item - sinks_len];
-                                (dev.id, dev.volume)
-                            } else if self.selected_item < sinks_len + sources_len + streams_len {
-                                let stream = &self.audio_streams
-                                    [self.selected_item - sinks_len - sources_len];
-                                (stream.id, stream.volume)
-                            } else {
-                                (0, 0.0)
-                            };
-
-                            if id != 0 {
-                                let step = if key
-                                    .modifiers
-                                    .contains(crossterm::event::KeyModifiers::SHIFT)
-                                {
-                                    0.01
-                                } else {
-                                    0.05
-                                };
-                                let mut new_vol = if increase {
-                                    current_vol + step
-                                } else {
-                                    current_vol - step
-                                };
-                                new_vol = new_vol.clamp(0.0, 1.0);
-                                if let Some(tx) = &self.cmd_tx {
-                                    let _ =
-                                        tx.try_send(BackendCommand::SetAudioVolume(id, new_vol));
-                                }
-                            }
+                            let shift = key
+                                .modifiers
+                                .contains(crossterm::event::KeyModifiers::SHIFT);
+                            self.adjust_sound_volume(increase, shift);
                         } else if cat == "Display" {
                             let has_brightness = self.display_brightness.is_some();
                             let nl_idx = if has_brightness { 1 } else { 0 };
@@ -2483,7 +2501,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         let bt_backend = crate::backends::bluetooth::BlueZBackend::new().await.ok();
         let power_backend = crate::backends::power::UPowerBackend::new().await.ok();
         let audio_backend = crate::backends::audio::WpctlBackend::new();
-        let services_backend = crate::backends::systemd::SystemdBackend::new().await.ok();
+        let services_backend = crate::backends::systemd::create_services_backend().await;
 
         let display_backend: Option<Box<dyn DisplayBackend>> =
             Some(crate::backends::display::create_display_backend());
@@ -2515,11 +2533,30 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                     match cmd {
                         BackendCommand::SudoToggleService(name, start, pwd) => {
                             use std::io::Write;
-                            let child = std::process::Command::new("sudo")
-                                .arg("-S")
-                                .arg("systemctl")
-                                .arg(if start { "start" } else { "stop" })
-                                .arg(&name)
+                            let init = crate::backends::systemd::InitSystem::detect();
+                            let mut sudo_cmd = std::process::Command::new("sudo");
+                            sudo_cmd.arg("-S");
+                            match init {
+                                crate::backends::systemd::InitSystem::OpenRC => {
+                                    sudo_cmd
+                                        .arg("rc-service")
+                                        .arg(&name)
+                                        .arg(if start { "start" } else { "stop" });
+                                }
+                                crate::backends::systemd::InitSystem::Runit => {
+                                    sudo_cmd
+                                        .arg("sv")
+                                        .arg(if start { "up" } else { "down" })
+                                        .arg(&name);
+                                }
+                                _ => {
+                                    sudo_cmd
+                                        .arg("systemctl")
+                                        .arg(if start { "start" } else { "stop" })
+                                        .arg(&name);
+                                }
+                            }
+                            let child = sudo_cmd
                                 .stdin(std::process::Stdio::piped())
                                 .stdout(std::process::Stdio::null())
                                 .stderr(std::process::Stdio::null())
@@ -2695,14 +2732,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                 let err_msg = mutation_error.unwrap_or_else(|| format!("Failed to toggle mute for audio device {}", id));
                                 let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                             }
-                            if let Ok(sinks) = audio_backend.get_sinks().await {
-                                if let Ok(sources) = audio_backend.get_sources().await {
-                                    if let Ok(streams) = audio_backend.get_streams().await {
-                                        let _ = tx_cmd_resp
-                                            .send(AppEvent::UpdateAudio(sinks, sources, streams))
-                                            .await;
-                                    }
-                                }
+                            if let Ok((sinks, sources, streams)) = audio_backend.get_all_audio_state().await {
+                                let _ = tx_cmd_resp
+                                    .send(AppEvent::UpdateAudio(sinks, sources, streams))
+                                    .await;
                             }
                         }
                         BackendCommand::SetAudioVolume(id, vol) => {
@@ -2723,14 +2756,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                     ))
                                     .await;
                             }
-                            if let Ok(sinks) = audio_backend.get_sinks().await {
-                                if let Ok(sources) = audio_backend.get_sources().await {
-                                    if let Ok(streams) = audio_backend.get_streams().await {
-                                        let _ = tx_cmd_resp
-                                            .send(AppEvent::UpdateAudio(sinks, sources, streams))
-                                            .await;
-                                    }
-                                }
+                            if let Ok((sinks, sources, streams)) = audio_backend.get_all_audio_state().await {
+                                let _ = tx_cmd_resp
+                                    .send(AppEvent::UpdateAudio(sinks, sources, streams))
+                                    .await;
                             }
                         }
                         BackendCommand::SetDisplayScale(name, scale) => {
@@ -3290,12 +3319,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                     let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                                 }
                                 if let Ok(sinks) = final_state {
-                                    if let Ok(sources) = audio_backend.get_sources().await {
-                                        if let Ok(streams) = audio_backend.get_streams().await {
-                                            let _ = tx_cmd_resp
-                                                .send(AppEvent::UpdateAudio(sinks, sources, streams))
-                                                .await;
-                                        }
+                                    if let Ok((_, sources, streams)) = audio_backend.get_all_audio_state().await {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::UpdateAudio(sinks, sources, streams))
+                                            .await;
                                     }
                                 }
                             } else {
@@ -3327,12 +3354,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                     let _ = tx_cmd_resp.send(AppEvent::Notification(err_msg)).await;
                                 }
                                 if let Ok(sources) = final_state {
-                                    if let Ok(sinks) = audio_backend.get_sinks().await {
-                                        if let Ok(streams) = audio_backend.get_streams().await {
-                                            let _ = tx_cmd_resp
-                                                .send(AppEvent::UpdateAudio(sinks, sources, streams))
-                                                .await;
-                                        }
+                                    if let Ok((sinks, _, streams)) = audio_backend.get_all_audio_state().await {
+                                        let _ = tx_cmd_resp
+                                            .send(AppEvent::UpdateAudio(sinks, sources, streams))
+                                            .await;
                                     }
                                 }
                             }
@@ -3353,14 +3378,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                                         .await;
                                 }
                             }
-                            if let Ok(sinks) = audio_backend.get_sinks().await {
-                                if let Ok(sources) = audio_backend.get_sources().await {
-                                    if let Ok(streams) = audio_backend.get_streams().await {
-                                        let _ = tx_cmd_resp
-                                            .send(AppEvent::UpdateAudio(sinks, sources, streams))
-                                            .await;
-                                    }
-                                }
+                            if let Ok((sinks, sources, streams)) = audio_backend.get_all_audio_state().await {
+                                let _ = tx_cmd_resp
+                                    .send(AppEvent::UpdateAudio(sinks, sources, streams))
+                                    .await;
                             }
                         }
                         BackendCommand::RemoveBluetoothDevice(id) => {
@@ -4080,7 +4101,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                             let _ = tx_backend.send(AppEvent::UpdatePower(info)).await;
                         }
                     }
-                    if let (Ok(sinks), Ok(sources), Ok(streams)) = (audio_backend.get_sinks().await, audio_backend.get_sources().await, audio_backend.get_streams().await) {
+                    if let Ok((sinks, sources, streams)) = audio_backend.get_all_audio_state().await {
                         let _ = tx_backend.send(AppEvent::UpdateAudio(sinks, sources, streams)).await;
                     }
                     if let Some(svc) = &services_backend {
@@ -5532,5 +5553,117 @@ mod tests {
         assert!(app.help_modal);
         app.handle_key(press(KeyCode::Enter));
         assert!(!app.help_modal, "Help modal should close on Enter");
+    }
+
+    #[test]
+    fn test_sound_volume_left_right_keys() {
+        let mut app = App::new();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(10);
+        app.cmd_tx = Some(tx);
+
+        let sound_cat_idx = app
+            .visible_categories()
+            .iter()
+            .position(|c| c == "Sound")
+            .expect("Sound category should exist");
+        app.selected_category = sound_cat_idx;
+        app.focus = Focus::Content;
+
+        app.audio_sinks = vec![crate::backends::AudioDevice {
+            id: 10,
+            name: "test_sink".to_string(),
+            description: "Test Sink".to_string(),
+            is_default: true,
+            volume: 0.50,
+            muted: false,
+            is_sink: true,
+            form_factor: "internal".to_string(),
+            codec: None,
+        }];
+        app.selected_item = 0;
+
+        // 1. Right arrow -> +0.05
+        app.handle_key(press(KeyCode::Right));
+        assert_eq!(app.focus, Focus::Content);
+        assert!((app.audio_sinks[0].volume - 0.55).abs() < 1e-4);
+        if let Ok(BackendCommand::SetAudioVolume(id, vol)) = rx.try_recv() {
+            assert_eq!(id, 10);
+            assert!((vol - 0.55).abs() < 1e-4);
+        } else {
+            panic!("Expected SetAudioVolume on Right arrow");
+        }
+
+        // 2. Left arrow -> -0.05 and MUST stay in Content focus
+        app.handle_key(press(KeyCode::Left));
+        assert_eq!(
+            app.focus,
+            Focus::Content,
+            "Left arrow must not switch to Sidebar"
+        );
+        assert!((app.audio_sinks[0].volume - 0.50).abs() < 1e-4);
+        if let Ok(BackendCommand::SetAudioVolume(id, vol)) = rx.try_recv() {
+            assert_eq!(id, 10);
+            assert!((vol - 0.50).abs() < 1e-4);
+        } else {
+            panic!("Expected SetAudioVolume on Left arrow");
+        }
+
+        // 3. Shift + Right -> +0.01
+        app.handle_key(press_with_mod(KeyCode::Right, KeyModifiers::SHIFT));
+        assert_eq!(app.focus, Focus::Content);
+        assert!((app.audio_sinks[0].volume - 0.51).abs() < 1e-4);
+        if let Ok(BackendCommand::SetAudioVolume(id, vol)) = rx.try_recv() {
+            assert_eq!(id, 10);
+            assert!((vol - 0.51).abs() < 1e-4);
+        } else {
+            panic!("Expected SetAudioVolume on Shift+Right");
+        }
+
+        // 4. Shift + Left -> -0.01 and stays in Content focus
+        app.handle_key(press_with_mod(KeyCode::Left, KeyModifiers::SHIFT));
+        assert_eq!(app.focus, Focus::Content);
+        assert!((app.audio_sinks[0].volume - 0.50).abs() < 1e-4);
+        if let Ok(BackendCommand::SetAudioVolume(id, vol)) = rx.try_recv() {
+            assert_eq!(id, 10);
+            assert!((vol - 0.50).abs() < 1e-4);
+        } else {
+            panic!("Expected SetAudioVolume on Shift+Left");
+        }
+    }
+
+    #[test]
+    fn test_sound_space_mute_toggle() {
+        let mut app = App::new();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(10);
+        app.cmd_tx = Some(tx);
+
+        let sound_cat_idx = app
+            .visible_categories()
+            .iter()
+            .position(|c| c == "Sound")
+            .expect("Sound category should exist");
+        app.selected_category = sound_cat_idx;
+        app.focus = Focus::Content;
+
+        app.audio_sinks = vec![crate::backends::AudioDevice {
+            id: 25,
+            name: "test_sink_25".to_string(),
+            description: "Test Sink 25".to_string(),
+            is_default: true,
+            volume: 0.80,
+            muted: false,
+            is_sink: true,
+            form_factor: "internal".to_string(),
+            codec: None,
+        }];
+        app.selected_item = 0;
+
+        app.handle_key(press(KeyCode::Char(' ')));
+        if let Ok(BackendCommand::ToggleAudioMute(id, is_sink)) = rx.try_recv() {
+            assert_eq!(id, 25);
+            assert!(is_sink);
+        } else {
+            panic!("Expected ToggleAudioMute command on Space key");
+        }
     }
 }

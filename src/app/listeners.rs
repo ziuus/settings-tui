@@ -80,7 +80,7 @@ pub async fn spawn_power_listener(tx: mpsc::Sender<AppEvent>) {
     });
 }
 
-/// Watches PipeWire events via pw-mon with 500ms debounce.
+/// Watches PipeWire events via pw-mon with 250ms trailing-edge quiet-timer debounce.
 /// pw-mon is part of pipewire-utils. If unavailable, falls back silently —
 /// audio state will still update via the 5-second poll in the main loop.
 pub async fn spawn_audio_listener(tx: mpsc::Sender<AppEvent>) {
@@ -93,36 +93,44 @@ pub async fn spawn_audio_listener(tx: mpsc::Sender<AppEvent>) {
         if let Ok(mut child) = child {
             if let Some(stdout) = child.stdout.take() {
                 use tokio::io::{AsyncBufReadExt, BufReader};
+                use tokio::time::{sleep_until, Duration, Instant};
+
                 let mut reader = BufReader::new(stdout);
                 let mut line = String::new();
-
                 let audio = crate::backends::audio::WpctlBackend::new();
-                let mut last_update = tokio::time::Instant::now();
+                let mut debounce_deadline: Option<Instant> = None;
 
-                while let Ok(bytes) = reader.read_line(&mut line).await {
-                    if bytes == 0 {
-                        break;
-                    }
-
-                    if line.contains("changed:")
-                        || line.contains("added:")
-                        || line.contains("removed:")
-                    {
-                        let now = tokio::time::Instant::now();
-                        if now.duration_since(last_update).as_millis() > 500 {
-                            if let (Ok(sinks), Ok(sources), Ok(streams)) = (
-                                audio.get_sinks().await,
-                                audio.get_sources().await,
-                                audio.get_streams().await,
-                            ) {
+                loop {
+                    tokio::select! {
+                        read_res = reader.read_line(&mut line) => {
+                            match read_res {
+                                Ok(0) => break, // EOF
+                                Ok(_) => {
+                                    if line.contains("changed:")
+                                        || line.contains("added:")
+                                        || line.contains("removed:")
+                                    {
+                                        debounce_deadline = Some(Instant::now() + Duration::from_millis(250));
+                                    }
+                                    line.clear();
+                                }
+                                Err(_) => break,
+                            }
+                        }
+                        _ = async {
+                            match debounce_deadline {
+                                Some(deadline) => sleep_until(deadline).await,
+                                None => futures::future::pending::<()>().await,
+                            }
+                        }, if debounce_deadline.is_some() => {
+                            debounce_deadline = None;
+                            if let Ok((sinks, sources, streams)) = audio.get_all_audio_state().await {
                                 let _ = tx
                                     .send(AppEvent::UpdateAudio(sinks, sources, streams))
                                     .await;
                             }
-                            last_update = now;
                         }
                     }
-                    line.clear();
                 }
                 // pw-mon exited — let the main poll loop handle future updates.
                 let _ = child.wait().await;

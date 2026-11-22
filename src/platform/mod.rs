@@ -1,4 +1,49 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+pub fn binary_exists(bin: &str) -> bool {
+    if let Some(path_var) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            if dir.join(bin).is_file() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[cfg(unix)]
+pub fn current_uid() -> u32 {
+    extern "C" {
+        fn getuid() -> u32;
+    }
+    unsafe { getuid() }
+}
+
+#[cfg(not(unix))]
+pub fn current_uid() -> u32 {
+    1000
+}
+
+pub fn get_runtime_dir() -> PathBuf {
+    if let Ok(runtime) = std::env::var("XDG_RUNTIME_DIR") {
+        if !runtime.is_empty() {
+            let p = PathBuf::from(runtime);
+            if p.exists() {
+                return p;
+            }
+        }
+    }
+    let uid = current_uid();
+    let run_user = PathBuf::from(format!("/run/user/{}", uid));
+    if run_user.exists() {
+        return run_user;
+    }
+    let tmp_user = PathBuf::from(format!("/tmp/runtime-{}", uid));
+    if tmp_user.exists() {
+        return tmp_user;
+    }
+    run_user
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CapabilityStatus {
@@ -79,10 +124,11 @@ impl EnvironmentInfo {
             "Linux KMS / Console".to_string()
         };
 
-        let runtime_dir =
-            std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/1000".to_string());
-        let pipewire_socket = format!("{}/pipewire-0", runtime_dir);
-        let has_pipewire_socket = Path::new(&pipewire_socket).exists();
+        let runtime_dir = get_runtime_dir();
+        let pipewire_socket = runtime_dir.join("pipewire-0");
+        let has_pipewire_socket = pipewire_socket.exists()
+            || Path::new("/run/pipewire/pipewire-0").exists()
+            || Path::new("/tmp/pipewire-0").exists();
 
         let has_network_manager_socket = Path::new("/run/NetworkManager").exists()
             || Path::new("/var/run/NetworkManager").exists();
@@ -339,5 +385,24 @@ mod tests {
         let caps = PlatformCapabilities::detect(true, true, true, true, true, true, true, true);
         assert!(matches!(caps.services, CapabilityStatus::Mutable));
         assert!(caps.services.is_mutable());
+    }
+
+    #[test]
+    fn test_get_runtime_dir_dynamic_uid() {
+        let runtime_dir = get_runtime_dir();
+        assert!(!runtime_dir.as_os_str().is_empty());
+        let uid = current_uid();
+        if std::env::var("XDG_RUNTIME_DIR").is_err() {
+            assert!(
+                runtime_dir.to_string_lossy().contains(&uid.to_string()),
+                "Runtime dir without XDG_RUNTIME_DIR must contain current UID"
+            );
+        }
+    }
+
+    #[test]
+    fn test_binary_exists() {
+        assert!(binary_exists("sh") || binary_exists("bash"));
+        assert!(!binary_exists("definitely_nonexistent_binary_xyz_12345"));
     }
 }

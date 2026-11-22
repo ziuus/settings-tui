@@ -58,7 +58,7 @@ impl GsettingsBackend {
         themes
     }
 
-    fn get_home_dir() -> PathBuf {
+    pub fn get_home_dir() -> PathBuf {
         if let Ok(home) = std::env::var("HOME") {
             PathBuf::from(home)
         } else {
@@ -66,52 +66,134 @@ impl GsettingsBackend {
         }
     }
 
+    pub fn get_config_home() -> PathBuf {
+        if let Some(cfg) = std::env::var_os("XDG_CONFIG_HOME") {
+            if !cfg.is_empty() {
+                return PathBuf::from(cfg);
+            }
+        }
+        Self::get_home_dir().join(".config")
+    }
+
+    pub fn get_data_home() -> PathBuf {
+        if let Some(data) = std::env::var_os("XDG_DATA_HOME") {
+            if !data.is_empty() {
+                return PathBuf::from(data);
+            }
+        }
+        Self::get_home_dir().join(".local/share")
+    }
+
+    pub fn get_data_dirs() -> Vec<PathBuf> {
+        let mut dirs = Vec::new();
+        if let Some(val) = std::env::var_os("XDG_DATA_DIRS") {
+            for p in std::env::split_paths(&val) {
+                if !dirs.contains(&p) {
+                    dirs.push(p);
+                }
+            }
+        }
+        if dirs.is_empty() {
+            dirs.push(PathBuf::from("/usr/local/share"));
+            dirs.push(PathBuf::from("/usr/share"));
+        }
+        // NixOS system and user paths
+        let nix_sw = PathBuf::from("/run/current-system/sw/share");
+        if nix_sw.exists() && !dirs.contains(&nix_sw) {
+            dirs.push(nix_sw);
+        }
+        let nix_user = Self::get_home_dir().join(".nix-profile/share");
+        if nix_user.exists() && !dirs.contains(&nix_user) {
+            dirs.push(nix_user);
+        }
+        dirs
+    }
+
+    fn is_writable(path: &Path) -> bool {
+        let target = if path.is_symlink() {
+            std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+        } else {
+            path.to_path_buf()
+        };
+        if target.exists() {
+            if let Ok(meta) = std::fs::metadata(&target) {
+                if meta.permissions().readonly() {
+                    return false;
+                }
+            }
+        }
+        if let Some(parent) = target.parent() {
+            if parent.exists() {
+                if let Ok(meta) = std::fs::metadata(parent) {
+                    if meta.permissions().readonly() {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    fn safe_write(path: &Path, content: &str) {
+        if !Self::is_writable(path) {
+            return;
+        }
+        let _ = crate::security::atomic_write(path, content.as_bytes());
+    }
+
+    fn find_foot_theme(theme_name: &str) -> Option<PathBuf> {
+        for data_dir in Self::get_data_dirs() {
+            let p = data_dir.join("foot/themes").join(theme_name);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+        let default_path = PathBuf::from(format!("/usr/share/foot/themes/{}", theme_name));
+        if default_path.exists() {
+            return Some(default_path);
+        }
+        None
+    }
+
     fn sync_terminals(is_dark: bool) {
-        let home = Self::get_home_dir();
+        let config_home = Self::get_config_home();
 
         // 1. Foot Terminal
-        let foot_dir = home.join(".config/foot");
+        let foot_dir = config_home.join("foot");
         let foot_ini = foot_dir.join("foot.ini");
         if foot_dir.exists() || foot_ini.exists() {
             let _ = std::fs::create_dir_all(&foot_dir);
             let theme_ini = foot_dir.join("theme.ini");
 
             let theme_path = if is_dark {
-                if Path::new("/usr/share/foot/themes/catppuccin-mocha").exists() {
-                    Some("/usr/share/foot/themes/catppuccin-mocha")
-                } else if Path::new("/usr/share/foot/themes/gruvbox-dark").exists() {
-                    Some("/usr/share/foot/themes/gruvbox-dark")
-                } else {
-                    None
-                }
-            } else if Path::new("/usr/share/foot/themes/catppuccin-latte").exists() {
-                Some("/usr/share/foot/themes/catppuccin-latte")
-            } else if Path::new("/usr/share/foot/themes/gruvbox-light").exists() {
-                Some("/usr/share/foot/themes/gruvbox-light")
+                Self::find_foot_theme("catppuccin-mocha")
+                    .or_else(|| Self::find_foot_theme("gruvbox-dark"))
             } else {
-                None
+                Self::find_foot_theme("catppuccin-latte")
+                    .or_else(|| Self::find_foot_theme("gruvbox-light"))
             };
 
             let theme_content = if let Some(path) = theme_path {
-                format!("include={}\n", path)
+                format!("include={}\n", path.display())
             } else if is_dark {
                 "[colors-dark]\nbackground=1e1e2e\nforeground=cdd6f4\n".to_string()
             } else {
                 "[colors-light]\nbackground=eff1f5\nforeground=4c4f69\n".to_string()
             };
 
-            let _ = std::fs::write(&theme_ini, theme_content);
+            Self::safe_write(&theme_ini, &theme_content);
 
             // Ensure foot.ini includes theme.ini
+            let include_line = format!("include={}/theme.ini\n", foot_dir.display());
             if foot_ini.exists() {
                 if let Ok(content) = std::fs::read_to_string(&foot_ini) {
                     if !content.contains("theme.ini") {
-                        let new_content = format!("include=~/.config/foot/theme.ini\n{}", content);
-                        let _ = std::fs::write(&foot_ini, new_content);
+                        let new_content = format!("{}{}", include_line, content);
+                        Self::safe_write(&foot_ini, &new_content);
                     }
                 }
             } else {
-                let _ = std::fs::write(&foot_ini, "include=~/.config/foot/theme.ini\n");
+                Self::safe_write(&foot_ini, &include_line);
             }
 
             // Signal foot to switch theme live
@@ -121,7 +203,7 @@ impl GsettingsBackend {
         }
 
         // 2. Kitty Terminal
-        let kitty_dir = home.join(".config/kitty");
+        let kitty_dir = config_home.join("kitty");
         if kitty_dir.exists() {
             let theme_conf = kitty_dir.join("theme.conf");
             let kitty_theme = if is_dark {
@@ -180,14 +262,14 @@ color15 #BCC0CC
 "#
             };
 
-            let _ = std::fs::write(&theme_conf, kitty_theme);
+            Self::safe_write(&theme_conf, kitty_theme);
 
             // Signal kitty processes to live-reload configuration
             let _ = Command::new("pkill").arg("-SIGUSR1").arg("kitty").output();
         }
 
         // 3. Alacritty
-        let alacritty_dir = home.join(".config/alacritty");
+        let alacritty_dir = config_home.join("alacritty");
         let alacritty_toml = alacritty_dir.join("alacritty.toml");
         if alacritty_toml.exists() {
             if let Ok(content) = std::fs::read_to_string(&alacritty_toml) {
@@ -198,13 +280,13 @@ color15 #BCC0CC
                         &format!("{}.toml", old_mode),
                         &format!("{}.toml", target_mode),
                     );
-                    let _ = std::fs::write(&alacritty_toml, updated);
+                    Self::safe_write(&alacritty_toml, &updated);
                 }
             }
         }
 
         // 4. Ghostty
-        let ghostty_config = home.join(".config/ghostty/config");
+        let ghostty_config = config_home.join("ghostty/config");
         if ghostty_config.exists() {
             if let Ok(content) = std::fs::read_to_string(&ghostty_config) {
                 let mut lines = Vec::new();
@@ -230,17 +312,17 @@ color15 #BCC0CC
                     };
                     lines.push(format!("theme = {}", new_theme));
                 }
-                let _ = std::fs::write(&ghostty_config, lines.join("\n") + "\n");
+                Self::safe_write(&ghostty_config, &(lines.join("\n") + "\n"));
             }
         }
     }
 
     fn sync_gtk_files(is_dark: bool) {
-        let home = Self::get_home_dir();
+        let config_home = Self::get_config_home();
         let prefer_dark_val = if is_dark { "1" } else { "0" };
 
         for dir_name in &["gtk-3.0", "gtk-4.0"] {
-            let gtk_dir = home.join(".config").join(dir_name);
+            let gtk_dir = config_home.join(dir_name);
             let _ = std::fs::create_dir_all(&gtk_dir);
             let ini_path = gtk_dir.join("settings.ini");
 
@@ -280,13 +362,13 @@ color15 #BCC0CC
                 }
             }
 
-            let _ = std::fs::write(&ini_path, lines.join("\n") + "\n");
+            Self::safe_write(&ini_path, &(lines.join("\n") + "\n"));
         }
     }
 
     fn sync_qt_and_kde(is_dark: bool) {
-        let home = Self::get_home_dir();
-        let kdeglobals = home.join(".config/kdeglobals");
+        let config_home = Self::get_config_home();
+        let kdeglobals = config_home.join("kdeglobals");
         let color_scheme = if is_dark { "BreezeDark" } else { "BreezeLight" };
 
         if kdeglobals.exists() {
@@ -314,7 +396,7 @@ color15 #BCC0CC
                     }
                 }
 
-                let _ = std::fs::write(&kdeglobals, lines.join("\n") + "\n");
+                Self::safe_write(&kdeglobals, &(lines.join("\n") + "\n"));
             }
         }
 
@@ -341,22 +423,27 @@ impl AppearanceBackend for GsettingsBackend {
         let gtk_theme = Self::get_key("org.gnome.desktop.interface", "gtk-theme");
         let icon_theme = Self::get_key("org.gnome.desktop.interface", "icon-theme");
 
-        let home = std::env::var("HOME").unwrap_or_default();
-        let home_path = std::path::Path::new(&home);
-
-        let gtk_dirs = vec![
-            std::path::PathBuf::from("/usr/share/themes"),
-            std::path::PathBuf::from("/usr/local/share/themes"),
-            home_path.join(".themes"),
-            home_path.join(".local/share/themes"),
+        let mut gtk_dirs = vec![
+            Self::get_data_home().join("themes"),
+            Self::get_home_dir().join(".themes"),
         ];
+        for d in Self::get_data_dirs() {
+            let p = d.join("themes");
+            if !gtk_dirs.contains(&p) {
+                gtk_dirs.push(p);
+            }
+        }
 
-        let icon_dirs = vec![
-            std::path::PathBuf::from("/usr/share/icons"),
-            std::path::PathBuf::from("/usr/local/share/icons"),
-            home_path.join(".icons"),
-            home_path.join(".local/share/icons"),
+        let mut icon_dirs = vec![
+            Self::get_data_home().join("icons"),
+            Self::get_home_dir().join(".icons"),
         ];
+        for d in Self::get_data_dirs() {
+            let p = d.join("icons");
+            if !icon_dirs.contains(&p) {
+                icon_dirs.push(p);
+            }
+        }
 
         let mut available_gtk_themes = Self::scan_theme_dirs(&gtk_dirs, false, false);
         if !gtk_theme.is_empty()
@@ -520,7 +607,7 @@ impl AppearanceBackend for GsettingsBackend {
             path.to_string()
         } else {
             std::fs::canonicalize(path_obj)
-                .unwrap_or(path_obj.to_path_buf())
+                .unwrap_or_else(|_| path_obj.to_path_buf())
                 .display()
                 .to_string()
         };
@@ -529,6 +616,8 @@ impl AppearanceBackend for GsettingsBackend {
         } else {
             format!("file://{}", path_str)
         };
+
+        // 1. GNOME / generic GSettings
         let _ = std::process::Command::new("gsettings")
             .args(["set", "org.gnome.desktop.background", "picture-uri", &uri])
             .output();
@@ -541,13 +630,55 @@ impl AppearanceBackend for GsettingsBackend {
             ])
             .output();
 
-        // Also support hyprpaper
-        if let Ok(mut cmd) = std::process::Command::new("hyprctl")
-            .args(["hyprpaper", "wallpaper", &format!(",{}", path_str)])
-            .spawn()
-        {
-            let _ = cmd.wait();
+        // 2. KDE Plasma
+        if crate::platform::binary_exists("plasma-apply-wallpaperimage") {
+            let _ = std::process::Command::new("plasma-apply-wallpaperimage")
+                .arg(&path_str)
+                .output();
         }
+
+        // 3. Hyprland (hyprpaper preload then wallpaper, or swww)
+        if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok()
+            || crate::platform::binary_exists("hyprctl")
+        {
+            let _ = std::process::Command::new("hyprctl")
+                .args(["hyprpaper", "preload", &path_str])
+                .output();
+            let _ = std::process::Command::new("hyprctl")
+                .args(["hyprpaper", "wallpaper", &format!(",{}", path_str)])
+                .output();
+        }
+        if crate::platform::binary_exists("swww") {
+            let _ = std::process::Command::new("swww")
+                .args(["img", &path_str])
+                .output();
+        }
+
+        // 4. Sway / generic wlroots
+        if std::env::var("SWAYSOCK").is_ok() || crate::platform::binary_exists("swaymsg") {
+            let _ = std::process::Command::new("swaymsg")
+                .args(["output", "*", "bg", &path_str, "fill"])
+                .output();
+        }
+        if crate::platform::binary_exists("swaybg") {
+            let _ = std::process::Command::new("swaybg")
+                .args(["-i", &path_str, "-m", "fill"])
+                .spawn();
+        }
+
+        // 5. X11 window managers
+        if std::env::var("DISPLAY").is_ok() {
+            if crate::platform::binary_exists("feh") {
+                let _ = std::process::Command::new("feh")
+                    .args(["--bg-fill", &path_str])
+                    .output();
+            } else if crate::platform::binary_exists("nitrogen") {
+                let _ = std::process::Command::new("nitrogen")
+                    .args(["--set-zoom-fill", &path_str, "--save"])
+                    .output();
+            }
+        }
+
         Ok(())
     }
 }
@@ -581,5 +712,47 @@ mod tests {
         for t in &themes {
             assert!(!t.starts_with('.'));
         }
+    }
+
+    #[test]
+    fn test_xdg_paths_and_data_dirs() {
+        let config_home = GsettingsBackend::get_config_home();
+        assert!(!config_home.as_os_str().is_empty());
+
+        let data_home = GsettingsBackend::get_data_home();
+        assert!(!data_home.as_os_str().is_empty());
+
+        let data_dirs = GsettingsBackend::get_data_dirs();
+        assert!(!data_dirs.is_empty());
+        assert!(data_dirs.iter().any(|d| d.ends_with("share")));
+    }
+
+    #[test]
+    fn test_safe_write_respects_readonly() {
+        let tmp_dir = std::env::temp_dir().join("settings_tui_appearance_test");
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let ro_file = tmp_dir.join("readonly_test.conf");
+        let _ = std::fs::write(&ro_file, "original content");
+
+        // Set read-only
+        let mut perms = std::fs::metadata(&ro_file).unwrap().permissions();
+        perms.set_readonly(true);
+        let _ = std::fs::set_permissions(&ro_file, perms);
+
+        // Safe write should detect non-writability and skip without panic
+        GsettingsBackend::safe_write(&ro_file, "new overwritten content");
+
+        // Revert permissions to clean up
+        let mut perms = std::fs::metadata(&ro_file).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+        let _ = std::fs::set_permissions(&ro_file, perms);
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn test_find_foot_theme_graceful() {
+        let result = GsettingsBackend::find_foot_theme("nonexistent_theme_99999");
+        assert!(result.is_none());
     }
 }

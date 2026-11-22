@@ -36,11 +36,14 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             } else if is_selected {
                 title.push_str(" [Press Enter to set Default]");
             }
+            if is_selected {
+                title.push_str(" [Space: Mute]");
+            }
             if dev.muted {
                 title.push_str(" (Muted)");
             }
 
-            let control = widgets::slider(dev.volume, 20, is_selected);
+            let control = widgets::slider_dimmed(dev.volume, 20, is_selected, dev.muted);
             let row_lines = widgets::setting_row(&title, &dev.name, control, is_selected, 80);
 
             text.extend(row_lines);
@@ -78,11 +81,14 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             } else if is_selected {
                 title.push_str(" [Press Enter to set Default]");
             }
+            if is_selected {
+                title.push_str(" [Space: Mute]");
+            }
             if dev.muted {
                 title.push_str(" (Muted)");
             }
 
-            let control = widgets::slider(dev.volume, 20, is_selected);
+            let control = widgets::slider_dimmed(dev.volume, 20, is_selected, dev.muted);
             let row_lines = widgets::setting_row(&title, &dev.name, control, is_selected, 80);
 
             text.extend(row_lines);
@@ -112,6 +118,9 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
             let is_selected = content_active && current_idx == app.selected_item;
 
             let mut title = stream.application_name.clone();
+            if is_selected {
+                title.push_str(" [Space: Mute]");
+            }
             if stream.muted {
                 title.push_str(" (Muted)");
             }
@@ -128,7 +137,7 @@ pub fn render<'a>(app: &'a App, content_active: bool) -> Vec<Line<'a>> {
                 "Recording".to_string()
             };
 
-            let control = widgets::slider(stream.volume, 20, is_selected);
+            let control = widgets::slider_dimmed(stream.volume, 20, is_selected, stream.muted);
             let row_lines = widgets::setting_row(&title, &type_marker, control, is_selected, 80);
 
             text.extend(row_lines);

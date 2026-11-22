@@ -26,16 +26,22 @@ impl WpctlBackend {
         Ok(val)
     }
 
-    fn parse_devices(dump: &Value, is_sink_filter: bool) -> Vec<AudioDevice> {
-        let mut devices = Vec::new();
+    pub fn parse_all_audio_state(
+        dump: &Value,
+    ) -> (Vec<AudioDevice>, Vec<AudioDevice>, Vec<AudioStream>) {
+        let mut sinks = Vec::new();
+        let mut sources = Vec::new();
+        let mut streams = Vec::new();
+
         let arr = match dump.as_array() {
             Some(a) => a,
-            None => return devices,
+            None => return (sinks, sources, streams),
         };
 
-        // First find defaults from Metadata
+        // First find defaults from Metadata and build node description map
         let mut default_sink_name = String::new();
         let mut default_source_name = String::new();
+        let mut node_descriptions = std::collections::HashMap::new();
 
         for item in arr {
             if item["type"] == "PipeWire:Interface:Metadata" && item["info"]["name"] == "default" {
@@ -52,10 +58,18 @@ impl WpctlBackend {
                         }
                     }
                 }
+            } else if item["type"] == "PipeWire:Interface:Node" {
+                if let Some(nid) = item["id"].as_u64() {
+                    let desc = item["info"]["props"]["node.description"]
+                        .as_str()
+                        .or_else(|| item["info"]["props"]["node.name"].as_str())
+                        .unwrap_or("Unknown Device");
+                    node_descriptions.insert(nid as u32, desc.to_string());
+                }
             }
         }
 
-        // Now parse Nodes
+        // Now parse Nodes (devices and streams)
         for item in arr {
             if item["type"] == "PipeWire:Interface:Node" {
                 let props = &item["info"]["props"];
@@ -64,7 +78,7 @@ impl WpctlBackend {
                 let is_sink = media_class == "Audio/Sink";
                 let is_source = media_class == "Audio/Source";
 
-                if (is_sink_filter && is_sink) || (!is_sink_filter && is_source) {
+                if is_sink || is_source {
                     let id = item["id"].as_u64().unwrap_or(0) as u32;
                     let name = props["node.name"].as_str().unwrap_or("Unknown").to_string();
                     let description = props["node.description"]
@@ -95,14 +109,12 @@ impl WpctlBackend {
                             .to_string()
                         });
 
-                    // Check default
-                    let is_default = if is_sink_filter {
+                    let is_default = if is_sink {
                         name == default_sink_name
                     } else {
                         name == default_source_name
                     };
 
-                    // Check volume & mute from Props
                     let mut volume = 1.0;
                     let mut muted = false;
 
@@ -117,7 +129,7 @@ impl WpctlBackend {
                         }
                     }
 
-                    devices.push(AudioDevice {
+                    let dev = AudioDevice {
                         id,
                         name,
                         description,
@@ -127,46 +139,14 @@ impl WpctlBackend {
                         is_sink,
                         form_factor,
                         codec,
-                    });
+                    };
+
+                    if is_sink {
+                        sinks.push(dev);
+                    } else {
+                        sources.push(dev);
+                    }
                 }
-            }
-        }
-
-        // Sort: defaults first, then by description
-        devices.sort_by(|a, b| {
-            b.is_default
-                .cmp(&a.is_default)
-                .then(a.description.cmp(&b.description))
-        });
-
-        devices
-    }
-
-    fn parse_streams(dump: &Value) -> Vec<AudioStream> {
-        let mut streams = Vec::new();
-        let arr = match dump.as_array() {
-            Some(a) => a,
-            None => return streams,
-        };
-
-        // Build node id -> description map for sinks and sources
-        let mut node_descriptions = std::collections::HashMap::new();
-        for item in arr {
-            if item["type"] == "PipeWire:Interface:Node" {
-                if let Some(nid) = item["id"].as_u64() {
-                    let desc = item["info"]["props"]["node.description"]
-                        .as_str()
-                        .or_else(|| item["info"]["props"]["node.name"].as_str())
-                        .unwrap_or("Unknown Device");
-                    node_descriptions.insert(nid as u32, desc.to_string());
-                }
-            }
-        }
-
-        for item in arr {
-            if item["type"] == "PipeWire:Interface:Node" {
-                let props = &item["info"]["props"];
-                let media_class = props["media.class"].as_str().unwrap_or("");
 
                 let is_sink_input = media_class == "Stream/Output/Audio";
                 let is_source_output = media_class == "Stream/Input/Audio";
@@ -222,26 +202,58 @@ impl WpctlBackend {
             }
         }
 
+        sinks.sort_by(|a, b| {
+            b.is_default
+                .cmp(&a.is_default)
+                .then(a.description.cmp(&b.description))
+        });
+        sources.sort_by(|a, b| {
+            b.is_default
+                .cmp(&a.is_default)
+                .then(a.description.cmp(&b.description))
+        });
         streams.sort_by(|a, b| a.application_name.cmp(&b.application_name));
+
+        (sinks, sources, streams)
+    }
+
+    pub fn parse_devices(dump: &Value, is_sink_filter: bool) -> Vec<AudioDevice> {
+        let (sinks, sources, _) = Self::parse_all_audio_state(dump);
+        if is_sink_filter {
+            sinks
+        } else {
+            sources
+        }
+    }
+
+    pub fn parse_streams(dump: &Value) -> Vec<AudioStream> {
+        let (_, _, streams) = Self::parse_all_audio_state(dump);
         streams
     }
 }
 
 #[async_trait]
 impl AudioBackend for WpctlBackend {
-    async fn get_sinks(&self) -> Result<Vec<AudioDevice>> {
+    async fn get_all_audio_state(
+        &self,
+    ) -> Result<(Vec<AudioDevice>, Vec<AudioDevice>, Vec<AudioStream>)> {
         let dump = self.get_pw_dump().await?;
-        Ok(Self::parse_devices(&dump, true))
+        Ok(Self::parse_all_audio_state(&dump))
+    }
+
+    async fn get_sinks(&self) -> Result<Vec<AudioDevice>> {
+        let (sinks, _, _) = self.get_all_audio_state().await?;
+        Ok(sinks)
     }
 
     async fn get_sources(&self) -> Result<Vec<AudioDevice>> {
-        let dump = self.get_pw_dump().await?;
-        Ok(Self::parse_devices(&dump, false))
+        let (_, sources, _) = self.get_all_audio_state().await?;
+        Ok(sources)
     }
 
     async fn get_streams(&self) -> Result<Vec<AudioStream>> {
-        let dump = self.get_pw_dump().await?;
-        Ok(Self::parse_streams(&dump))
+        let (_, _, streams) = self.get_all_audio_state().await?;
+        Ok(streams)
     }
 
     async fn get_volume(&self, id: u32) -> Result<(f64, bool)> {
@@ -358,5 +370,132 @@ impl AudioBackend for WpctlBackend {
             stream_id,
             device_id
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_parse_all_audio_state() {
+        let dump = json!([
+            {
+                "type": "PipeWire:Interface:Metadata",
+                "info": { "name": "default" },
+                "metadata": [
+                    {
+                        "key": "default.audio.sink",
+                        "value": { "name": "alsa_output.pci-0000_00_1f.3.analog-stereo" }
+                    },
+                    {
+                        "key": "default.audio.source",
+                        "value": { "name": "alsa_input.pci-0000_00_1f.3.analog-stereo" }
+                    }
+                ]
+            },
+            {
+                "id": 42,
+                "type": "PipeWire:Interface:Node",
+                "info": {
+                    "props": {
+                        "media.class": "Audio/Sink",
+                        "node.name": "alsa_output.pci-0000_00_1f.3.analog-stereo",
+                        "node.description": "Built-in Audio Analog Stereo",
+                        "device.form.factor": "internal"
+                    },
+                    "params": {
+                        "Props": [
+                            {
+                                "volume": 0.75,
+                                "mute": false
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "id": 43,
+                "type": "PipeWire:Interface:Node",
+                "info": {
+                    "props": {
+                        "media.class": "Audio/Source",
+                        "node.name": "alsa_input.pci-0000_00_1f.3.analog-stereo",
+                        "node.description": "Built-in Microphone",
+                        "device.form.factor": "internal"
+                    },
+                    "params": {
+                        "Props": [
+                            {
+                                "volume": 0.60,
+                                "mute": true
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "id": 101,
+                "type": "PipeWire:Interface:Node",
+                "info": {
+                    "props": {
+                        "media.class": "Stream/Output/Audio",
+                        "application.name": "Firefox",
+                        "node.name": "Firefox Playback",
+                        "target.node": 42
+                    },
+                    "params": {
+                        "Props": [
+                            {
+                                "volume": 0.80,
+                                "mute": false
+                            }
+                        ]
+                    }
+                }
+            }
+        ]);
+
+        let (sinks, sources, streams) = WpctlBackend::parse_all_audio_state(&dump);
+        assert_eq!(sinks.len(), 1);
+        assert_eq!(sinks[0].id, 42);
+        assert_eq!(sinks[0].name, "alsa_output.pci-0000_00_1f.3.analog-stereo");
+        assert!(sinks[0].is_default);
+        assert!(sinks[0].is_sink);
+        assert!((sinks[0].volume - 0.75).abs() < 1e-4);
+        assert!(!sinks[0].muted);
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].id, 43);
+        assert_eq!(sources[0].name, "alsa_input.pci-0000_00_1f.3.analog-stereo");
+        assert!(sources[0].is_default);
+        assert!(!sources[0].is_sink);
+        assert!((sources[0].volume - 0.60).abs() < 1e-4);
+        assert!(sources[0].muted);
+
+        assert_eq!(streams.len(), 1);
+        assert_eq!(streams[0].id, 101);
+        assert_eq!(streams[0].application_name, "Firefox");
+        assert_eq!(streams[0].device_id, Some(42));
+        assert_eq!(
+            streams[0].device_name.as_deref(),
+            Some("Built-in Audio Analog Stereo")
+        );
+        assert!(streams[0].is_sink_input);
+        assert!(!streams[0].muted);
+
+        // Verify parse_devices and parse_streams wrappers match
+        let dev_sinks = WpctlBackend::parse_devices(&dump, true);
+        assert_eq!(dev_sinks.len(), 1);
+        assert_eq!(dev_sinks[0].id, 42);
+
+        let dev_sources = WpctlBackend::parse_devices(&dump, false);
+        assert_eq!(dev_sources.len(), 1);
+        assert_eq!(dev_sources[0].id, 43);
+
+        let dev_streams = WpctlBackend::parse_streams(&dump);
+        assert_eq!(dev_streams.len(), 1);
+        assert_eq!(dev_streams[0].id, 101);
     }
 }

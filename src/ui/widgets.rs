@@ -49,14 +49,25 @@ pub fn toggle<'a>(enabled: bool, is_selected: bool) -> Vec<Span<'a>> {
     }
 }
 
-pub fn slider<'a>(value: f64, width: usize, is_selected: bool) -> Vec<Span<'a>> {
+pub fn slider_dimmed<'a>(
+    value: f64,
+    width: usize,
+    is_selected: bool,
+    is_muted: bool,
+) -> Vec<Span<'a>> {
     let bg_style = Style::default();
 
     let filled = (value * width as f64).round() as usize;
     let filled = filled.min(width);
     let empty = width - filled;
 
-    vec![
+    let fill_color = if is_muted {
+        Color::DarkGray
+    } else {
+        Color::LightCyan
+    };
+
+    let mut spans = vec![
         Span::styled(
             "[",
             if is_selected {
@@ -65,7 +76,7 @@ pub fn slider<'a>(value: f64, width: usize, is_selected: bool) -> Vec<Span<'a>> 
                 bg_style.fg(Color::DarkGray)
             },
         ),
-        Span::styled("■".repeat(filled), bg_style.fg(Color::LightCyan)),
+        Span::styled("■".repeat(filled), bg_style.fg(fill_color)),
         Span::styled(
             "-".repeat(empty),
             if is_selected {
@@ -90,7 +101,20 @@ pub fn slider<'a>(value: f64, width: usize, is_selected: bool) -> Vec<Span<'a>> 
                 bg_style.fg(Color::Gray)
             },
         ),
-    ]
+    ];
+
+    if is_muted {
+        spans.push(Span::styled(
+            " [MUTED]",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ));
+    }
+
+    spans
+}
+
+pub fn slider<'a>(value: f64, width: usize, is_selected: bool) -> Vec<Span<'a>> {
+    slider_dimmed(value, width, is_selected, false)
 }
 
 pub fn value_read_only<'a>(value: &str, is_selected: bool) -> Vec<Span<'a>> {
@@ -250,5 +274,25 @@ pub fn capability_banner<'a>(
             ]),
             ratatui::text::Line::from(""),
         ],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_slider_dimmed_muted_styling() {
+        let unmuted_spans = slider_dimmed(0.5, 10, true, false);
+        assert!(!unmuted_spans.iter().any(|s| s.content.contains("[MUTED]")));
+        assert!(unmuted_spans
+            .iter()
+            .any(|s| s.style.fg == Some(Color::LightCyan)));
+
+        let muted_spans = slider_dimmed(0.5, 10, true, true);
+        assert!(muted_spans.iter().any(|s| s.content.contains("[MUTED]")));
+        assert!(muted_spans
+            .iter()
+            .any(|s| s.style.fg == Some(Color::DarkGray)));
     }
 }
